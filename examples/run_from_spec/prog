@@ -1,0 +1,43 @@
+#!/bin/sh
+
+. ../../junonia.sh
+
+prog () {
+  echo "shared arg: $1"
+}
+
+prog_sub1 () {
+  echo "shared arg: $1"
+  echo "sub1 opt1:  $2"
+}
+
+prog_sub2 () {
+  echo "shared arg: $1"
+  echo "POS1:       $2"
+  echo "sub2 opt1:  $3"
+  echo "sub2 opt2:  $4"
+}
+
+spec='
+prog
+  -shared-arg SHARED
+  sub1
+    -sub1-opt1 OPT1
+  sub2
+    POS1
+    -sub2-opt1 OPT1
+    -sub2-opt2 OPT2
+'
+
+if [ $# -eq 0 ]; then
+cat << 'EOF'
+Try some of these:
+./prog -shared-arg foo
+./prog sub1 -sub1-opt1 foo -shared-arg bar
+./prog sub2 foo -sub2-opt1 bar -sub2-opt2 baz
+EOF
+exit
+fi
+
+junonia_runspec "$spec" "$@"
+
