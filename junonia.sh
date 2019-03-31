@@ -33,65 +33,56 @@ _junonia_md2spec () {
 
     # When encountering a header, leave any header we were in.
     /^#/ {
-        synopsis = 0
-        description = 0
-        positional = 0
-        options = 0
+      synopsis = 0
+      description = 0
+      positional = 0
+      options = 0
+    }
+
+    # Top level "##" header
+    # ## `command subcommand`
+    /^## `[-_A-Za-z0-9 ]+`/ {
+      if(cmd) {
+        spec()
+      }
+      for(i=0; i<NF-2; i++) {
+        indent = indent "  "
       }
 
-      # Top level "##" header
-      # ## `command subcommand`
-      /^## `[-_A-Za-z0-9 ]+`/ {
-        if(cmd) {
-          spec()
-        }
-        for(i=0; i<NF-2; i++) {
-          indent = indent "  "
-        }
+      gsub(/`/, "")
+      cmd = $NF
+    }
 
-        gsub(/`/, "")
-        cmd = $NF
-      }
+    /^### Description/ {
+      description = 1
+    }
 
-      /^### Synopsis/ {
-        synopsis = 1
-      }
-      
-      synopsis && /^    [a-z]/ {
-      command [OPTIONS]
-        synopsis = 0
-      }
+    /^### Positional parameters/ {
+      positional = 1
+    }
 
-      /^### Description/ {
-        description = 1
-      }
+    #* `POS_ONE`
+    positional && /^\* `[-_A-Z0-9]+`/ {
+      gsub(/`/, "")
+      params[++n_params] = $2
+    }
 
-      /^### Positional parameters/ {
-        positional = 1
-      }
+    /^### Options/ {
+      options = 1
+    }
 
-      #* `POS_ONE`
-      positional && /^\* `[-_A-Z0-9]+`/ {
-        gsub(/`/, "")
-        params[++n_params] = $2
-      }
+    #* `-option`
+    #* `-option VAL`
+    #* `-option VAL1 [-option1 VAL2 ...]`
+    options && /^\* `-[-A-Za-z0-9]+/ {
+      gsub(/`/, "")
 
-      /^### Options/ {
-        options = 1
+      if(NF > 3) {
+        opts[++n_opts] = $2 " [" $3 "]"
+      } else {
+        opts[++n_opts] = $2 " " $3
       }
-
-      #* `-option`
-      #* `-option VAL`
-      #* `-option VAL1 [-option1 VAL2 ...]`
-      options && /^\* `-[-A-Za-z0-9]+/ {
-        gsub(/`/, "")
-
-        if(NF > 3) {
-          opts[++n_opts] = $2 " [" $3 "]"
-        } else {
-          opts[++n_opts] = $2 " " $3
-        }
-      }
+    }
 
     END {
       spec()
