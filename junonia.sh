@@ -3,6 +3,67 @@
 ###
 
 _JUNONIA_IFS=""
+_JUNONIA_WRAP=76
+_JUNONIA_COL1=26
+_JUNONIA_COL2=50
+
+JUNONIA_AWKS="$awk_hardwrap $awk_twocol"
+
+###
+### AWK functions
+###
+
+# Wrap a long line to a specified width and optionally prefixed
+awk_hardwrap='
+  function hardwrap(line, width, pre,
+                    str, n, wrapped) {
+    while(length(line) > width) {
+      n = index(line, " ")
+      if(n == 0) {
+        break
+      }
+
+      if(n > width) {
+        str = substr(line, 1, n - 1)
+      } else {
+        str = substr(line, 1, width)
+      }
+
+      sub(/ [^ ]*$/, "", str)
+      sub(/^ /, "", str)
+      wrapped = wrapped pre str "\n"
+      line = substr(line, length(str) + 2, length(line))
+    }
+
+    if(line) {
+      sub(/^ */, "", line)
+      wrapped = wrapped pre line "\n"
+    }
+
+    return substr(wrapped, 1, length(wrapped) - 1)
+  }
+'
+
+awk_twocol='
+  function twocol(text1, text2, col1, col2, gutter, pre,
+                  fmt, text1a, text2a, i, formatted) {
+    text1 = hardwrap(text1, col1)
+    text2 = hardwrap(text2, col2)
+    gutter = sprintf("%" gutter "s", "")
+    fmt = pre "%-" col1 "s" gutter "%-" col2 "s"
+
+    split(text1, text1a, "\n")
+    split(text2, text2a, "\n")
+
+    i = 1
+    while(text1a[i] || text2a[i]) {
+      formatted = formatted sprintf(fmt, text1a[i], text2a[i]) "\n"
+      i++
+    }
+
+    return substr(formatted, 1, length(formatted) - 1)
+  }
+'
 
 ###
 ### Markdown parsing functions
@@ -34,7 +95,6 @@ _junonia_md2spec () {
     # When encountering a header, leave any header we were in.
     /^#/ {
       synopsis = 0
-      description = 0
       positional = 0
       options = 0
     }
@@ -51,10 +111,6 @@ _junonia_md2spec () {
 
       gsub(/`/, "")
       cmd = $NF
-    }
-
-    /^### Description/ {
-      description = 1
     }
 
     /^### Positional parameters/ {
@@ -90,6 +146,133 @@ _junonia_md2spec () {
   ' "$@"
 }
 
+# Parse Markdown text into command line help
+_junonia_md2help () {
+  awk_prog='
+    # Print the currently stored spec and reset for the next one.
+    function spec () {
+      print indent cmd
+
+      for(i=1; i<=n_params; i++) {
+        print indent "  " params[i]
+      }
+
+      for(i=1; i<=n_opts; i++) {
+        print indent "  " opts[i]
+      }
+
+      cmd = ""
+      n_params = 0
+      n_opts = 0
+      split("", params, ":")
+      split("", opts, ":")
+    }
+
+    BEGIN {
+      col1_indent = sprintf("%" col1 "s", "")
+      txt = "NAME\n"
+    }
+
+    # When encountering a header, leave any header we were in.
+    /^#/ {
+      if(intro + synopsis + description + positional + options) {
+        txt = txt "\n"
+      }
+
+      intro = 0
+      synopsis = 0
+      description = 0
+      positional = 0
+      options = 0
+    }
+
+    # Top level "##" header
+    # ## `command subcommand`
+    /^## `[-_A-Za-z0-9 ]+`/ {
+      intro = 1
+      gsub(/^## `|`$/, "")
+      name = $0
+      txt = txt "  " $0
+      next
+    }
+
+    intro && ! /^$/ {
+      short_desc = $0
+      txt = txt " -- " $0 "\n"
+    }
+
+    /^### Synopsis/ {
+      synopsis = 1
+      txt = txt "SYNOPSIS\n"
+      next
+    }
+
+    synopsis && /^    [a-z]/ {
+      sub(/^    /, "  ")
+      syn = $0
+      txt = txt $0 "\n"
+    }
+
+    /^### Description/ {
+      description = 1
+      txt = txt "DESCRIPTION"
+      next
+    }
+
+    description && ! /^$/ {
+      txt = txt "\n" hardwrap($0, wrap - 2, "  ") "\n"
+    }
+
+    /^### Positional parameters/ {
+      positional = 1
+      txt = txt "PARAMETERS\n"
+      next
+    }
+
+    #* `POS_ONE`
+    positional && /^\* `[-_A-Z0-9]+`/ {
+      gsub(/`/, "")
+      param_col1 = $2
+    }
+
+    positional && /^[A-Za-z0-9]/ {
+      txt = txt twocol(param_col1, $0, 23, 50, 1, "  ") "\n"
+    }
+
+    /^### Options/ {
+      options = 1
+      txt = txt "OPTIONS\n"
+      next
+    }
+
+    #* `-option`
+    #* `-option VAL`
+    #* `-option VAL1 [-option1 VAL2 ...]`
+    options && /^\* `-[-A-Za-z0-9]+/ {
+      gsub(/^* |`/, "")
+      opt_col1 = $0
+    }
+
+    options && /^[A-Za-z0-9]/ {
+      if(length(opt_col1) > col1 - 1) {
+        opt_col2 = hardwrap($0, wrap - col1, col1_indent)
+        txt = txt "  " opt_col1 "\n" opt_col2 "\n\n"
+      } else {
+        txt = txt twocol(opt_col1, $0, 23, 50, 1, "  ") "\n\n"
+      }
+    }
+
+    END {
+      sub(/\n*$/, "", txt)
+      print txt
+    }
+  '
+
+  awk -v wrap="$_JUNONIA_WRAP" -v col1="$_JUNONIA_COL1" \
+      -v col2="$_JUNONIA_COL2" "$awk_hardwrap $awk_twocol $awk_prog" "$@"
+}
+
+
 ###
 ### Argument parsing and program execution
 ###
@@ -106,9 +289,9 @@ _junonia_parse_args () {
   shift
 
   # We expect IFS to have been set to some non-default value, since things like
-  # spaces and newlines need to be ignored when passing the determined values back.
-  # The output will be separated by this IFS, which will be something like the Record 
-  # Separator (control character 30).
+  # spaces and newlines need to be ignored when passing the determined values
+  # back.  The output will be separated by this IFS, which will be something
+  # like the Record Separator (control character 30).
   echo "$spec" | awk -v recsep="$_JUNONIA_IFS" '
   BEGIN {
     # Arg 1 is stdin, so skip that and Iterate through the remaining program
