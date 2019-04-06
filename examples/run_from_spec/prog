@@ -18,20 +18,49 @@ prog_sub2 () {
   echo "sub2 opt2:  $4"
 }
 
-spec='
+spec='# Prog
+
+# This program runs from a spec string. The spec string is printed when help is
+# requested.
+
+# Blank lines and lines starting with # are ignored when the program argument
+# spec is processed. Lines with "# " at the very start have the "# " stripped
+# when "help" is run.
+
 prog
   -shared-arg SHARED
+  # Argument shared by all subcommands
+
+  # Subcommand with one option
   sub1
     -sub1-opt1 OPT1
+    # This option could be documented in a comment here.
+
+  # This subcommand takes one positional parameter
+  # and two options.
   sub2
     POS1
     -sub2-opt1 OPT1
     -sub2-opt2 OPT2
 '
 
+# If you don't care about commenting the program for the help command,
+# then this is all that is really required for this spec:
+# spec='
+# prog
+#   -shared-arg SHARED
+#   sub1
+#     -sub1-opt1 OPT1
+#   sub2
+#     POS1
+#     -sub2-opt1 OPT1
+#     -sub2-opt2 OPT2
+# '
+
 if [ $# -eq 0 ]; then
 cat << 'EOF'
 Try some of these:
+./prog help
 ./prog -shared-arg foo
 ./prog sub1 -sub1-opt1 foo -shared-arg bar
 ./prog sub2 foo -sub2-opt1 bar -sub2-opt2 baz

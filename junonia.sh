@@ -268,7 +268,7 @@ _junonia_md2help () {
     }
   '
 
-  awk -v wrap="$_JUNONIA_WRAP" -v col1="$_JUNONIA_COL1" \
+  echo "$in" | awk -v wrap="$_JUNONIA_WRAP" -v col1="$_JUNONIA_COL1" \
       -v col2="$_JUNONIA_COL2" "$awk_hardwrap $awk_twocol $awk_prog" "$@"
 }
 
@@ -339,6 +339,26 @@ _junonia_parse_args () {
         pos[i-1] = ARGV[i]
         delete ARGV[i]
 
+        # Check for help subcommand
+        if(pos[i-1] == "help") {
+
+          # Build the function name to get help on
+          func_name = pos[1]
+
+          # e.g. cmd subcommand help
+          for(j=2; j<i-1; j++) {
+            func_name = func_name "_" pos[j]
+          }
+
+          # Check the next arg to see if that should be the func for help
+          # e.g. cmd subcommand help subcommand2
+          if(ARGV[i+1] && ARGV[i+1] !~ /^-/) {
+            func_name = func_name "_" ARGV[i+1]
+          }
+
+          print func_name "_help" recsep args
+          exit
+        }
       }
     }
 
@@ -365,6 +385,11 @@ _junonia_parse_args () {
     # the function name, the remaining positional values are assigned in order
     # as positional values.
     p = 1
+  }
+
+  # Skip lines starting with # and blank lines
+  /^ #/ || /^$/ {
+    next
   }
 
   {
@@ -413,14 +438,14 @@ _junonia_parse_args () {
   # this is a subcommand. Start or add to the function name which will be
   # executed and increment to the next positional value.
   indented && $1 == pos[p] {
-      if(func_name) {
-        func_name = func_name "_" $1
-      } else {
-        func_name = $1
-      }
-      indents = indents "  "
-      p++
-      next
+    if(func_name) {
+      func_name = func_name "_" $1
+    } else {
+      func_name = $1
+    }
+    indents = indents "  "
+    p++
+    next
   }
 
   END {
@@ -438,8 +463,46 @@ _junonia_proxy_func () {
   filter_func="$1"
   shift
 
+  md="$1"
+  shift
+
+  spec_src_type="$1"
+  shift
+
+  spec="$1"
+  shift
+
   func="$1"
   shift
+
+  # Check for help
+  helpfunc=
+  if echo "$func" | grep -Eq '_help$'; then
+    helpfunc="${func%_help}"
+  fi
+
+  if [ -n "$helpfunc" ]; then
+    case "$spec_src_type" in
+      dir)
+        if [ -f "$md/$helpfunc.md" ]; then
+          _junonia_md2help "$md/$helpfunc.md"
+          return 0
+        fi
+        ;;
+      file)
+        return 0
+        ;;
+      md_string)
+        echo "$md" > /tmp/$helpfunc.md
+        _junonia_md2help /tmp/$helpfunc.md
+        return 0
+        ;;
+      spec_string)
+        echo "$spec" | awk '{sub(/^# /, ""); print}'
+        return 0
+        ;;
+    esac
+  fi
 
   shift_n=0
 
@@ -478,17 +541,34 @@ junonia_runmd_filtered () {
   filter_func="$1"
   shift
 
-  docs="$1"
+  md="$1"
   shift
 
-  if [ ! -d "$docs" ]; then
-    echo "Docs dir could not be found: $docs"
+  spec=
+  ret=1
+  spec_src_type=
+  if [ -d "$md" ]; then
+    spec="$(_junonia_md2spec "$md"/*.md)"
+    ret=$?
+    spec_src_type="dir"
+  elif [ -f "$md" ]; then
+    spec="$(_junonia_md2spec "$md")"
+    ret=$?
+    spec_src_type="file"
+  elif [ "$(echo "$md" | wc -l)" -gt 1 ]; then
+    spec="$(echo "$md" | _junonia_md2spec -)"
+    ret=$?
+    spec_src_type="md_string"
+  fi
+
+  if [ -z "$spec" ] || [ "$ret" -ne 0 ]; then
+    echo "Unable to generate spec from source provided: $md" 1>&2
+    echo "Source should be a directory of Markdown, a Markdown file, or" 1>&2
+    echo "a shell string variable containing the Markdown contents." 1>&2
     return 1
   fi
 
-  spec="$(_junonia_md2spec "$docs"/*.md)"
-
-  junonia_runspec_filtered "$filter_func" "$spec" "$@"
+  _junonia_run_final "$filter_func" "$md" "$spec_src_type" "$spec" "$@"
 }
 
 # Take a spec string, run the function with the parsed args values.
@@ -501,6 +581,19 @@ junonia_runspec () {
 # filter function).
 junonia_runspec_filtered () {
   filter_func="$1"
+  shift
+
+  _junonia_run_final "$filter_func" "" "spec_string" "$@"
+}
+
+_junonia_run_final () {
+  filter_func="$1"
+  shift
+
+  md="$1"
+  shift
+
+  spec_src_type="$1"
   shift
 
   spec="$1"
@@ -520,6 +613,5 @@ junonia_runspec_filtered () {
   # by the filter function. Using a filter function is optional, and in that
   # case every function will receive every option; all common options in the
   # tree path.
-  _junonia_proxy_func "$filter_func" $arg_vals
+  _junonia_proxy_func "$filter_func" "$md" "$spec_src_type" "$spec" $arg_vals
 }
-
