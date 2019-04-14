@@ -3,11 +3,9 @@
 ###
 
 _JUNONIA_IFS=""
-_JUNONIA_WRAP=76
-_JUNONIA_COL1=26
-_JUNONIA_COL2=50
-
-JUNONIA_AWKS="$awk_hardwrap $awk_twocol"
+_JUNONIA_WRAP=78
+_JUNONIA_COL1=18
+_JUNONIA_COL2=60
 
 ###
 ### AWK functions
@@ -64,6 +62,8 @@ awk_twocol='
     return substr(formatted, 1, length(formatted) - 1)
   }
 '
+
+JUNONIA_AWKS="$awk_hardwrap $awk_twocol"
 
 ###
 ### Markdown parsing functions
@@ -149,25 +149,6 @@ _junonia_md2spec () {
 # Parse Markdown text into command line help
 _junonia_md2help () {
   awk_prog='
-    # Print the currently stored spec and reset for the next one.
-    function spec () {
-      print indent cmd
-
-      for(i=1; i<=n_params; i++) {
-        print indent "  " params[i]
-      }
-
-      for(i=1; i<=n_opts; i++) {
-        print indent "  " opts[i]
-      }
-
-      cmd = ""
-      n_params = 0
-      n_opts = 0
-      split("", params, ":")
-      split("", opts, ":")
-    }
-
     BEGIN {
       col1_indent = sprintf("%" col1 "s", "")
       txt = "NAME\n"
@@ -175,7 +156,7 @@ _junonia_md2help () {
 
     # When encountering a header, leave any header we were in.
     /^#/ {
-      if(intro + synopsis + description + positional + options) {
+      if(intro + synopsis + description + positional) {
         txt = txt "\n"
       }
 
@@ -189,16 +170,32 @@ _junonia_md2help () {
     # Top level "##" header
     # ## `command subcommand`
     /^## `[-_A-Za-z0-9 ]+`/ {
-      intro = 1
+      h2++
       gsub(/^## `|`$/, "")
-      name = $0
-      txt = txt "  " $0
+      intro = 1
+      if(h2 == 1) {
+        txt = txt "  " $0
+      } else {
+        if(h2 == 2) {
+          txt = txt "SUBCOMMANDS\n"
+        }
+        subcmd = $NF
+      }
       next
     }
 
-    intro && ! /^$/ {
-      short_desc = $0
+    intro && h2 == 1 && ! /^$/ {
       txt = txt " -- " $0 "\n"
+      next
+    }
+
+    intro && h2 > 1 && ! /^$/ {
+      txt = txt twocol(subcmd, $0, col1 - 3, col2, 1, "  ")
+      next
+    }
+
+    h2 > 1 {
+      next
     }
 
     /^### Synopsis/ {
@@ -236,7 +233,7 @@ _junonia_md2help () {
     }
 
     positional && /^[A-Za-z0-9]/ {
-      txt = txt twocol(param_col1, $0, 23, 50, 1, "  ") "\n"
+      txt = txt twocol(param_col1, $0, col1 - 3, col2, 1, "  ") "\n"
     }
 
     /^### Options/ {
@@ -254,11 +251,11 @@ _junonia_md2help () {
     }
 
     options && /^[A-Za-z0-9]/ {
-      if(length(opt_col1) > col1 - 1) {
+      if(length(opt_col1) > col1 - 3) {
         opt_col2 = hardwrap($0, wrap - col1, col1_indent)
         txt = txt "  " opt_col1 "\n" opt_col2 "\n\n"
       } else {
-        txt = txt twocol(opt_col1, $0, 23, 50, 1, "  ") "\n\n"
+        txt = txt twocol(opt_col1, $0, col1 - 3, col2, 1, "  ") "\n\n"
       }
     }
 
@@ -268,8 +265,8 @@ _junonia_md2help () {
     }
   '
 
-  echo "$in" | awk -v wrap="$_JUNONIA_WRAP" -v col1="$_JUNONIA_COL1" \
-      -v col2="$_JUNONIA_COL2" "$awk_hardwrap $awk_twocol $awk_prog" "$@"
+  cat | awk -v wrap="$_JUNONIA_WRAP" -v col1="$_JUNONIA_COL1" \
+            -v col2="$_JUNONIA_COL2" "$JUNONIA_AWKS $awk_prog"
 }
 
 
@@ -357,6 +354,7 @@ _junonia_parse_args () {
           }
 
           print func_name "_help" recsep args
+          e = 0
           exit
         }
       }
@@ -407,18 +405,38 @@ _junonia_parse_args () {
         # in the spec), so this option may have received multiple values.
 
         args = args opts[$1]
+        delete opts[$1]
         for(i=2; i<=opt_num[$1]; i++) {
           args = args "\n" opts[$1 i]
+          delete opts[$1 i]
         }
 
       } else {
-        if(opts[$1]) {
+        if($2) {
+
           # Single value option (no brackets around metavar in spec)
           args = args opts[$1]
+
         } else {
+
           # Flag (no metavar in spec)
-          args = args "1"
+          if(tolower(opts[$1]) == "true" || opts[$1] == "1" ||
+             opts[$1] == "") {
+            args = args "1"
+          } else{
+            if(tolower(opts[$1]) == "false" || opts[$1] == "0") {
+              args = args ""
+            } else {
+              msg = "option " $1 " argument must be omitted (true) or one of:"
+              msg = msg "\ntrue false 1 0"
+              print msg > "/dev/stderr"
+              e = 1
+              exit 1
+            }
+          }
+
         }
+        delete opts[$1]
       }
     }
     args = args recsep
@@ -449,6 +467,20 @@ _junonia_parse_args () {
   }
 
   END {
+    if(e) {
+      exit e
+    }
+
+    if(pos[p]) {
+      print "unknown parameter: " pos[p] > "/dev/stderr"
+      exit 1
+    }
+
+    for(i in opts) {
+      print "unknown option: " i > "/dev/stderr"
+      exit 1
+    }
+
     print func_name recsep args
   }' - "$@"
 }
@@ -485,9 +517,20 @@ _junonia_proxy_func () {
     case "$spec_src_type" in
       dir)
         if [ -f "$md/$helpfunc.md" ]; then
-          _junonia_md2help "$md/$helpfunc.md"
-          return 0
+          {
+            cat "$md/$helpfunc.md"
+            find -E "$md" -type f -regex "$md/$helpfunc"'_[^_]+\.md' \
+               -exec cat {} \;
+          } | _junonia_md2help "$md/$helpfunc.md"
+        else
+          helpfunc="$(echo $helpfunc | sed 's/_/ /g')"
+          if command -v $helpfunc >/dev/null 2>&1; then
+            echo "help not found for command: $helpfunc"
+          else
+            echo "command not found: $helpfunc"
+          fi
         fi
+        return 0
         ;;
       file)
         return 0
@@ -523,7 +566,7 @@ _junonia_proxy_func () {
   if [ -n "$func" ] && command -v $func >/dev/null 2>&1; then
     $func "$@"
   else
-    echo "command not found: $func" 1>&2
+    echo "command not found: $(echo "$func" | sed 's/_/ /g')" 1>&2
     return 1
   fi
 }
@@ -600,7 +643,10 @@ _junonia_run_final () {
   shift
 
   # The argument values in the order defined in the spec.
-  arg_vals="$(_junonia_parse_args "$spec" "$(basename "$0")" "$@")"
+  if ! arg_vals="$(_junonia_parse_args "$spec" "$(basename "$0")" "$@")"; then
+    # An error should have been supplied on stderr
+    return 1
+  fi
 
   # Since we're handling values that can be explicitly blank / empty, and
   # values that have whitespace that might need to be preserved, it's easiest
