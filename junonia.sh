@@ -151,6 +151,9 @@ _junonia_md2help () {
   awk_prog='
     BEGIN {
       col1_indent = sprintf("%" col1 "s", "")
+      cmd_re = "^" cmd "$"
+      subcmd_re = "^" cmd " [-_A-Za-z0-9]+$"
+      h2 = 0
       txt = "NAME\n"
     }
 
@@ -165,22 +168,28 @@ _junonia_md2help () {
       description = 0
       positional = 0
       options = 0
+      subcmd = ""
     }
 
     # Top level "##" header
     # ## `command subcommand`
-    /^## `[-_A-Za-z0-9 ]+`/ {
-      h2++
+    /^## / {
       gsub(/^## `|`$/, "")
+    }
+
+    $0 ~ cmd_re {
+      h2++
+      txt = txt "  " $0
       intro = 1
-      if(h2 == 1) {
-        txt = txt "  " $0
-      } else {
-        if(h2 == 2) {
-          txt = txt "SUBCOMMANDS\n"
-        }
-        subcmd = $NF
+      next
+    }
+
+    $0 ~ subcmd_re {
+      h2++
+      if(h2 == 2) {
+        txt = txt "SUBCOMMANDS\n"
       }
+      subcmd = $NF
       next
     }
 
@@ -189,12 +198,14 @@ _junonia_md2help () {
       next
     }
 
-    intro && h2 > 1 && ! /^$/ {
-      txt = txt twocol(subcmd, $0, col1 - 3, col2, 1, "  ")
+    subcmd && ! /^$/ {
+      txt = txt twocol(subcmd, $0, col1 - 3, col2, 1, "  ") "\n"
       next
     }
 
-    h2 > 1 {
+    # Not seen the right command or have processed it already, so none of the
+    # below processing should be done.
+    h2 != 1 {
       next
     }
 
@@ -265,8 +276,14 @@ _junonia_md2help () {
     }
   '
 
+  if [ -z "$1" ]; then
+    echo "Command text required to generate help"
+    return 1
+  fi
+
   cat | awk -v wrap="$_JUNONIA_WRAP" -v col1="$_JUNONIA_COL1" \
-            -v col2="$_JUNONIA_COL2" "$JUNONIA_AWKS $awk_prog"
+            -v col2="$_JUNONIA_COL2" -v cmd="$1" \
+            "$JUNONIA_AWKS $awk_prog"
 }
 
 
@@ -514,6 +531,7 @@ _junonia_proxy_func () {
   fi
 
   if [ -n "$helpfunc" ]; then
+    cmd="$(echo $helpfunc | sed 's/_/ /g')"
     case "$spec_src_type" in
       dir)
         if [ -f "$md/$helpfunc.md" ]; then
@@ -521,23 +539,22 @@ _junonia_proxy_func () {
             cat "$md/$helpfunc.md"
             find -E "$md" -type f -regex "$md/$helpfunc"'_[^_]+\.md' \
                -exec cat {} \;
-          } | _junonia_md2help "$md/$helpfunc.md"
+          } | _junonia_md2help "$cmd"
         else
-          helpfunc="$(echo $helpfunc | sed 's/_/ /g')"
           if command -v $helpfunc >/dev/null 2>&1; then
-            echo "help not found for command: $helpfunc"
+            echo "help not found for command: $cmd"
           else
-            echo "command not found: $helpfunc"
+            echo "command not found: $cmd"
           fi
         fi
         return 0
         ;;
       file)
+        cat "$md" | _junonia_md2help "$cmd"
         return 0
         ;;
       md_string)
-        echo "$md" > /tmp/$helpfunc.md
-        _junonia_md2help /tmp/$helpfunc.md
+        echo "$md" | _junonia_md2help "$cmd"
         return 0
         ;;
       spec_string)
