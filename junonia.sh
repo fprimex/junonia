@@ -117,26 +117,55 @@ _junonia_md2spec () {
       positional = 1
     }
 
-    #* `POS_ONE`
+    # * `POS_ONE`
+    # * `POS_TWO=default`
     positional && /^\* `[-_A-Z0-9]+`/ {
-      gsub(/`/, "")
-      params[++n_params] = $2
+      gsub(/^\* `|`$/, "")
+      split($0, a, "=")
+      params[++n_params] = a[1]
+      if(a[2]) {
+        param_defs = a[2]
+      }
     }
 
     /^### Options/ {
       options = 1
     }
 
-    #* `-option`
-    #* `-option VAL`
-    #* `-option VAL1 [-option1 VAL2 ...]`
+    # * `-option`
+    # * `-option=bool_default`
+    # * `-option VAL`
+    # * `-option VAL=default`
+    # * `-option VAL1 [-option1 VAL2 ...]`
     options && /^\* `-[-A-Za-z0-9]+/ {
-      gsub(/`/, "")
+      gsub(/^\* `|`$/, "")
 
-      if(NF > 3) {
+      if(NF > 2) {
+        # Defaults are not allowed for multi-opts
         opts[++n_opts] = $2 " [" $3 "]"
       } else {
-        opts[++n_opts] = $2 " " $3
+        split($1, a, "=")
+        opt = a[1]
+        bool_default = a[2]
+
+        if(bool_default) {
+          opts[++n_opts] = opt "=" bool_default
+        } else {
+          sub("^ *" opt " *", "")
+          split($0, a, "=")
+          meta = a[1]
+          opt_default = a[2]
+
+          if(meta) {
+            if(opt_default) {
+              opts[++n_opts] = opt " " meta "=" opt_default
+            } else {
+              opts[++n_opts] = opt " " meta
+            }
+          } else {
+            opts[++n_opts] = opt
+          }
+        }
       }
     }
 
@@ -656,6 +685,7 @@ junonia_runmd_filtered () {
     return 1
   fi
 
+  echo "$spec" 1>&2
   _junonia_run_final "$filter_func" "$md" "$spec_src_type" "$spec" "$@"
 }
 

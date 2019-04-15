@@ -16,3 +16,10 @@ Description of subcommand number one.
 
 This is option one for subcommand one.
 
+* `-bool1`
+
+A boolean option
+
+* `-bool2=true`
+
+A boolean with a default.
