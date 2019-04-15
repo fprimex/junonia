@@ -8,7 +8,10 @@ prog () {
 
 prog_sub1 () {
   echo "shared arg: $1"
-  echo "sub1 opt1:  $2"
+  echo "param1    : $2"
+  echo "sub1 opt1 : $3"
+  echo "bool1     : $4"
+  echo "bool2     : $5"
 }
 
 prog_sub2 () {
@@ -28,13 +31,16 @@ spec='# Prog
 # when "help" is run.
 
 prog
-  -shared-arg SHARED
+  -shared-arg SHARED=shared_default
   # Argument shared by all subcommands
 
   # Subcommand with one option
   sub1
+    PARAM1=p
     -sub1-opt1 OPT1
     # This option could be documented in a comment here.
+    -bool1
+    -bool2=false
 
   # This subcommand takes one positional parameter
   # and two options.

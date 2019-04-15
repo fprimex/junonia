@@ -307,6 +307,22 @@ _junonia_parse_args () {
   # back.  The output will be separated by this IFS, which will be something
   # like the Record Separator (control character 30).
   echo "$spec" | awk -v recsep="$_JUNONIA_IFS" '
+  function mapbool(b, opt) {
+    if(tolower(b) == "true" || b == "1") {
+      return "1"
+    } else {
+      if(tolower(b) == "false" || b == "0") {
+        return ""
+      } else {
+        msg = "option " opt " argument must be omitted (true) or one of:"
+        msg = msg "\ntrue false 1 0"
+        print msg > "/dev/stderr"
+        e = 1
+        exit 1
+      }
+    }
+  }
+
   BEGIN {
     # Arg 1 is stdin, so skip that and Iterate through the remaining program
     # arguments, which will be either positional (including subcommands),
@@ -414,46 +430,49 @@ _junonia_parse_args () {
 
   # Spec entry starts with a "-", which indicates an option.
   indented && substr($1, 0, 1) == "-" {
-    if($1 in opts) {
+    split($1, a, "=")
+    opt = a[1]
+    def = a[2]
+
+    if(opt in opts) {
       # This option from the spec is one we have in the program arguments.
 
       if($2 ~ /\[[A-Za-z0-9]+/) {
         # The option can be specified multiple times (brackets around metavar
         # in the spec), so this option may have received multiple values.
 
-        args = args opts[$1]
-        delete opts[$1]
-        for(i=2; i<=opt_num[$1]; i++) {
-          args = args "\n" opts[$1 i]
-          delete opts[$1 i]
+        args = args opts[opt]
+        delete opts[opt]
+        for(i=2; i<=opt_num[opt]; i++) {
+          args = args "\n" opts[opt i]
+          delete opts[opt i]
         }
 
       } else {
         if($2) {
 
           # Single value option (no brackets around metavar in spec)
-          args = args opts[$1]
+          args = args opts[opt]
 
         } else {
 
           # Flag (no metavar in spec)
-          if(tolower(opts[$1]) == "true" || opts[$1] == "1" ||
-             opts[$1] == "") {
-            args = args "1"
-          } else{
-            if(tolower(opts[$1]) == "false" || opts[$1] == "0") {
-              args = args ""
-            } else {
-              msg = "option " $1 " argument must be omitted (true) or one of:"
-              msg = msg "\ntrue false 1 0"
-              print msg > "/dev/stderr"
-              e = 1
-              exit 1
-            }
+          if(opts[opt] == "") {
+            opts[opt] = def
           }
 
+          args = args mapbool(opts[opt])
         }
-        delete opts[$1]
+        delete opts[opt]
+      }
+    } else {
+      if(def) {
+        args = args mapbool(def)
+      } else {
+        n = index($0, "=")
+        if(n) {
+          args = args substr($0, n + 1)
+        }
       }
     }
     args = args recsep
@@ -463,9 +482,18 @@ _junonia_parse_args () {
   # Spec entry does not start with hyphen and is all uppercase, which indicates
   # this is a positional parameter. Assign the current positional parameter
   # value and increment to the next positional value.
-  indented && $1 == toupper($1) {
-    args = args pos[p] recsep
-    p++
+  indented && $0 ~ /^ *[_A-Z0-9]+=*/ {
+    if(pos[p] != "") {
+      args = args pos[p] recsep
+      p++
+    } else {
+      n = index($0, "=")
+      if(n) {
+        args = args substr($0, n + 1) recsep
+      } else {
+        args = args "" recsep
+      }
+    }
     next
   }
 
