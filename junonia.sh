@@ -685,7 +685,6 @@ junonia_runmd_filtered () {
     return 1
   fi
 
-  echo "$spec" 1>&2
   _junonia_run_final "$filter_func" "$md" "$spec_src_type" "$spec" "$@"
 }
 
