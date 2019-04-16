@@ -2,17 +2,159 @@
 ### Global constants
 ###
 
-_JUNONIA_IFS=""
-_JUNONIA_WRAP=78
-_JUNONIA_COL1=18
-_JUNONIA_COL2=60
+# Intended to be user configurable / changed at any time
+JUNONIA_WRAP=78
+JUNONIA_COL1=18
+JUNONIA_COL2=60
+JUNONIA_DEBUG=
+
+# Intended to be used internally and not changed
+readonly _JUNONIA_IFS=""
+
 
 ###
-### AWK functions
+### I/O helpers
 ###
+
+# Print messages to stderr. Use printf to ensure the message is verbatim.
+# E.g. do not interpret \n in JSON.
+echoerr () { printf "[ERROR] %s\n" "$@" 1>&2; }
+
+# Same but no prefix
+echoerr_raw () { printf "%s\n" "$@" 1>&2; }
+
+# Print debug messages if the TF_LOG environment variable is set.
+echodebug () { [ -n "$JUNONIA_DEBUG" ] && echoerr "[DEBUG] $@"; return 0; }
+
+# Same but no prefix
+echodebug_raw () { [ -n "$JUNONIA_DEBUG" ] && echoerr_raw "$@"; return 0; }
+
+
+###
+### Execution environment setup and management
+###
+
+junonia_init () {
+  # Use TMPDIR if it is set. If not, set it to /tmp
+  if [ -z "$TMPDIR" ]; then
+    TMPDIR=/tmp
+  fi
+
+  # Strip the trailing / from TMPDIR if there is one
+  export TMPDIR="$(echo "$TMPDIR" | sed 's#/$##')"
+
+  # Determine the script location. Note that this is not POSIX but portable to
+  # many systems with nearly any kind of implementation of readlink.
+
+  # Get the command used to start this script
+  target="$0"
+
+  # If executing via a series of symlinks, resolve them all the way back to the
+  # script itself. Some danger here of infinitely cycling.
+  while [ -h "$target" ]; do
+    link=$(readlink "$target")
+    if [ "$(echo "$link" | cut -c -1)" = "/" ]; then
+      # link path is absolute, just need to follow it
+      target="$link"
+    else
+      # link path is relative, need to relatively follow it
+      target="${target%/*}"
+      target="$target/$link"
+    fi
+  done
+
+  # Now target should be like the following, where 'script' is not a symlink:
+  # /some/path/to/the/actual/script
+  # /home/user/code/project/name/bin/script
+
+  # Get the script name by removing the path and .sh suffix:
+  # script
+  readonly JUNONIA_NAME="$(basename "$target" .sh)"
+
+  # Get the script path, go there, resolve the full path of symlinks with pwd
+  # /some/path/to/the/actual
+  # /home/user/code/project/name/bin
+  readonly JUNONIA_PATH="$(cd ${target%/$JUNONIA_NAME} && pwd -P)"
+
+  # Determine if the path appears to be a UNIX style prefix by looking for
+  # directories common to prefixes. Note that setting the prefix is just for
+  # convenience so that a script can then check for more directories and set
+  # more of its own convenience variables.
+  JUNONIA_PREFIX="$(dirname "$JUNONIA_PATH")"
+  if [ -d "$JUNONIA_PREFIX/bin"     ] || \
+     [ -d "$JUNONIA_PREFIX/sbin"    ] || \
+     [ -d "$JUNONIA_PREFIX/lib"     ] || \
+     [ -d "$JUNONIA_PREFIX/libexec" ] || \
+     [ -d "$JUNONIA_PREFIX/usr"     ] || \
+     [ -d "$JUNONIA_PREFIX/etc"     ] || \
+     [ -d "$JUNONIA_PREFIX/opt"     ]; then
+    # This is a prefix:
+    # /home/user/code/project/name
+    readonly JUNONIA_PREFIX
+  else
+    # This is *not* a prefix:
+    # /some/path/to/the/actual
+    unset JUNONIA_PREFIX
+  fi
+
+  # Look in some particular paths for program markdown documentation.
+  for docdir in "$JUNONIA_PATH/../usr/share/doc/$JUNONIA_NAME" \
+                "$JUNONIA_PATH/docs" \
+                "$JUNONIA_PATH/doc"; do
+    if [ -d "$docdir" ] && [ -f "$docdir/$JUNONIA_NAME.md" ]; then
+      JUNONIA_DOCDIR="$docdir"
+    fi
+  done
+
+  if [ -n "$JUNONIA_DEBUG" ]; then
+    exec 3>&2
+  else
+    exec 3>/dev/null
+  fi
+}
+
+
+###
+### Shell utility functions
+###
+
+random_enough () {
+  awk -v s="$(/bin/sh -c 'echo $$')" '
+    BEGIN{
+      srand(s)
+      r=rand() rand()
+      gsub(/0\./,"",r)
+      print r
+    }'
+}
+
+
+###
+### AWK utility functions
+###
+
+_awk_echoerr='function echoerr(msg) {
+  printf "[ERROR] %s\n", msg >"/dev/stderr"
+}'
+
+_awk_echoerr_raw='function echoerr_raw(msg) {
+  printf "%s\n", msg >"/dev/stderr"
+}'
+
+_awk_echodebug='function echodebug(msg) {
+  if(JUNONIA_DEBUG) {
+    echoerr_raw("[DEBUG] " msg)
+  }
+}'
+
+_awk_echodebug_raw='function echodebug_raw(msg) {
+  if(JUNONIA_DEBUG) {
+    echoerr_raw(msg)
+  }
+}'
 
 # Wrap a long line to a specified width and optionally prefixed
-awk_hardwrap='
+_awk_hardwrap='
   function hardwrap(line, width, pre,
                     str, n, wrapped) {
     while(length(line) > width) {
@@ -42,7 +184,7 @@ awk_hardwrap='
   }
 '
 
-awk_twocol='
+_awk_twocol='
   function twocol(text1, text2, col1, col2, gutter, pre,
                   fmt, text1a, text2a, i, formatted) {
     text1 = hardwrap(text1, col1)
@@ -63,7 +205,15 @@ awk_twocol='
   }
 '
 
-JUNONIA_AWKS="$awk_hardwrap $awk_twocol"
+readonly JUNONIA_AWKS="
+$_awk_hardwrap
+$_awk_twocol
+$_awk_echoerr
+$_awk_echoerr_raw
+$_awk_echodebug
+$_awk_echodebug_raw
+"
+
 
 ###
 ### Markdown parsing functions
@@ -306,12 +456,12 @@ _junonia_md2help () {
   '
 
   if [ -z "$1" ]; then
-    echo "Command text required to generate help"
+    echoerr "Command text required to generate help"
     return 1
   fi
 
-  cat | awk -v wrap="$_JUNONIA_WRAP" -v col1="$_JUNONIA_COL1" \
-            -v col2="$_JUNONIA_COL2" -v cmd="$1" \
+  cat | awk -v wrap="$JUNONIA_WRAP" -v col1="$JUNONIA_COL1" \
+            -v col2="$JUNONIA_COL2" -v cmd="$1" \
             "$JUNONIA_AWKS $awk_prog"
 }
 
@@ -345,7 +495,7 @@ _junonia_parse_args () {
       } else {
         msg = "option " opt " argument must be omitted (true) or one of:"
         msg = msg "\ntrue false 1 0"
-        print msg > "/dev/stderr"
+        echoerr(msg)
         e = 1
         exit 1
       }
@@ -546,12 +696,12 @@ _junonia_parse_args () {
     }
 
     if(pos[p]) {
-      print "unknown parameter: " pos[p] > "/dev/stderr"
+      echoerr("unknown parameter: " pos[p])
       exit 1
     }
 
     for(i in opts) {
-      print "unknown option: " i > "/dev/stderr"
+      echoerr("unknown option: " i)
       exit 1
     }
 
@@ -561,7 +711,7 @@ _junonia_parse_args () {
 
 # Receive function argument values, send them through the filter if needed,
 # then execute the specified function with the values.
-_junonia_proxy_func () {
+_junonia_filter_func () {
   # Each value from the parsed args are now their own word, so the IFS can go
   # back to normal.
   unset IFS
@@ -581,6 +731,11 @@ _junonia_proxy_func () {
   func="$1"
   shift
 
+  if [ -z "$func" ]; then
+    echoerr "no operation given to perform"
+    return 1
+  fi
+
   # Check for help
   helpfunc=
   if echo "$func" | grep -Eq '_help$'; then
@@ -599,9 +754,9 @@ _junonia_proxy_func () {
           } | _junonia_md2help "$cmd"
         else
           if command -v $helpfunc >/dev/null 2>&1; then
-            echo "help not found for command: $cmd"
+            echoerr "help not found for command: $cmd"
           else
-            echo "command not found: $cmd"
+            echoerr "command not found: $cmd"
           fi
         fi
         return 0
@@ -637,12 +792,74 @@ _junonia_proxy_func () {
     i=$(( $i + 1 ))
   done
 
-  if [ -n "$func" ] && command -v $func >/dev/null 2>&1; then
-    $func "$@"
+  i=0
+  while ! command -v $func >/dev/null 2>&1; do
+    case $i in
+      0) p="$JUNONIA_PATH/$func.sh";;
+      1) p="$JUNONIA_PATH/cmd/$func.sh";;
+      2) p="$JUNONIA_PATH/cmds/$func.sh";;
+      3) p="$JUNONIA_PREFIX/lib/$JUNONIA_NAME/$func.sh";;
+      4) p="$JUNONIA_PREFIX/lib/$JUNONIA_NAME/cmd/$func.sh";;
+      5) p="$JUNONIA_PREFIX/lib/$JUNONIA_NAME/cmds/$func.sh";;
+      6) p="$JUNONIA_PREFIX/lib/$JUNONIA_NAME/command/$func.sh";;
+      7) p="$JUNONIA_PREFIX/lib/$JUNONIA_NAME/commands/$func.sh";;
+      *)
+        echoerr "command not found: $(echo $func | sed 's/_/ /g')"
+        return 1
+        ;;
+    esac
+
+    i=$(( $i + 1 ))
+
+    if [ -f "$p" ]; then
+      . "$p"
+    fi
+  done
+
+  $func "$@"
+}
+
+# Perform a search for defaults and run with them if found.
+junonia_run () {
+  junonia_init
+
+  # Look for a filter function named
+  # script_junonia_filter
+  if command -v ${JUNONIA_NAME}_junonia_filter >/dev/null 2>&1; then
+    filter_func=${JUNONIA_NAME}_junonia_filter
   else
-    echo "command not found: $(echo "$func" | sed 's/_/ /g')" 1>&2
-    return 1
+    fulter_func=
   fi
+
+  # A directory containing markdown docs was found. Run with it.
+  if [ -n "$JUNONIA_DOCDIR" ]; then
+    junonia_runmd_filtered "$filter_func" "$JUNONIA_DOCDIR" "$@"
+    return $?
+  fi
+
+  # There is a markdown file in the same dir as the script named `script.md`.
+  # Run with it.
+  if [ -f "$JUNONIA_PATH/$JUNONIA_NAME.md" ]; then
+    junonia_runmd_filtered "$filter_func" "$JUNONIA_PATH/$JUNONIA_NAME.md" "$@"
+    return $?
+  fi
+
+  # There is a shell function that can provide a spec named
+  # script_junonia_spec
+  # so run with it.
+  if command -v ${JUNONIA_NAME}_junonia_spec >/dev/null 2>&1; then
+    spec="$(_${JUNONIA_NAME}_junonia_spec)"
+    if [ -n "$spec" ]; then
+      junonia_runspec_filtered "$filter_func" "$spec" "$@"
+      return $?
+    else
+      echoerr "program argument spec was empty"
+      return 1
+    fi
+  fi
+
+  echoerr "unable to locate docs or spec needed to run"
+  return 1
 }
 
 # Take a docs dir of md files, make spec, run the function with the parsed arg
@@ -679,9 +896,9 @@ junonia_runmd_filtered () {
   fi
 
   if [ -z "$spec" ] || [ "$ret" -ne 0 ]; then
-    echo "Unable to generate spec from source provided: $md" 1>&2
-    echo "Source should be a directory of Markdown, a Markdown file, or" 1>&2
-    echo "a shell string variable containing the Markdown contents." 1>&2
+    echoerr "Unable to generate spec from source provided: $md"
+    echoerr "Source should be a directory of Markdown, a Markdown file,"
+    echoerr "or a shell string variable containing the Markdown contents."
     return 1
   fi
 
@@ -728,10 +945,10 @@ _junonia_run_final () {
   # Record Separator (RS) control character (decimal 30).
   IFS="$_JUNONIA_IFS"
 
-  # Pass the execution info to a proxy function. This allows us to handle the
+  # Pass the execution info to a filter function. This allows us to handle the
   # argument values as $@, and use shift to remove common options as specified
   # by the filter function. Using a filter function is optional, and in that
   # case every function will receive every option; all common options in the
   # tree path.
-  _junonia_proxy_func "$filter_func" "$md" "$spec_src_type" "$spec" $arg_vals
+  _junonia_filter_func "$filter_func" "$md" "$spec_src_type" "$spec" $arg_vals
 }
