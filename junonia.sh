@@ -1,4 +1,41 @@
 ###
+### Typical usage and program flow
+###
+
+# target="$(junonia_bootstrap)"
+# . "$(dirname "$target")"/some/path/to/junonia.sh
+# junonia_run, the main entrypoint that runs auto-discovery
+#   junonia_init to set up the environment
+#   junonia_run_* function chosen based on auto-discovery
+#     possibly _junonia_md2spec to generate spec from md files
+#     _junonia_run_final to collect all of the run options and start execution
+#       _junonia_set_args to determine arg values from:
+#                         spec defaults, config file, env vars, and cli args
+#       _junonia_filter_func to receive all arg values and run the function
+#         possibly run help and exit
+#         possibly run a user filter function to preprocess args
+#         run the specified function with the fully resolved arguments
+
+###
+### Copy of the bootstrap function
+###
+
+junonia_bootstrap () {
+  JUNONIA_TARGET="$0"
+  while [ -h "$JUNONIA_TARGET" ]; do
+    link="$(file -h "$JUNONIA_TARGET" | sed 's/^.*symbolic link to //')"
+    if [ "$(echo "$link" | cut -c -1)" = "/" ]; then
+      JUNONIA_TARGET="$link"
+    else
+      JUNONIA_TARGET="${JUNONIA_TARGET%/*}"
+      JUNONIA_TARGET="$JUNONIA_TARGET/$link"
+    fi
+  done
+  readonly JUNONIA_TARGET
+  readonly JUNONIA_PATH="$(cd "$(dirname "$JUNONIA_TARGET")" && pwd -P)"
+}
+
+###
 ### Global constants
 ###
 
@@ -6,9 +43,12 @@
 JUNONIA_WRAP=78
 JUNONIA_COL1=18
 JUNONIA_COL2=60
-JUNONIA_DEBUG=
 
-# Intended to be used internally and not changed
+# This may have been set before sourcing. Respect that and just document it.
+#JUNONIA_DEBUG=
+
+# Intended to be used internally and not changed.
+# This is the Record Separator (RS) control character (decimal 30).
 readonly _JUNONIA_IFS=""
 
 
@@ -35,6 +75,11 @@ echodebug_raw () { [ -n "$JUNONIA_DEBUG" ] && echoerr_raw "$@"; return 0; }
 ###
 
 junonia_init () {
+  if [ -n "$JUNONIA_INIT" ]; then
+    # init has already been run
+    return
+  fi
+
   # Use TMPDIR if it is set. If not, set it to /tmp
   if [ -z "$TMPDIR" ]; then
     TMPDIR=/tmp
@@ -46,35 +91,33 @@ junonia_init () {
   # Determine the script location. Note that this is not POSIX but portable to
   # many systems with nearly any kind of implementation of readlink.
 
-  # Get the command used to start this script
-  target="$0"
-
-  # If executing via a series of symlinks, resolve them all the way back to the
-  # script itself. Some danger here of infinitely cycling.
-  while [ -h "$target" ]; do
-    link=$(readlink "$target")
-    if [ "$(echo "$link" | cut -c -1)" = "/" ]; then
-      # link path is absolute, just need to follow it
-      target="$link"
-    else
-      # link path is relative, need to relatively follow it
-      target="${target%/*}"
-      target="$target/$link"
+  # Get the absolute path to command used to start this script. JUNONIA_TARGET
+  # can be set to a path to avoid the bootstrap process if that path is known
+  # in advance, or can be set in advance. Otherwise bootstrapping will be
+  # attempted if the function is defined.
+  if [ -z "$JUNONIA_TARGET" ]; then
+    if ! JUNONIA_TARGET="$(junonia_bootstrap >/dev/null 2>&1)"; then
+      echoerr "failed to bootstrap and init"
+      return 1
     fi
-  done
+  fi
 
-  # Now target should be like the following, where 'script' is not a symlink:
-  # /some/path/to/the/actual/script
-  # /home/user/code/project/name/bin/script
+  readonly JUNONIA_TARGET
+
+  if [ -z "$JUNONIA_PATH" ]; then
+    # Get the script path, go there, resolve the full path of symlinks with pwd
+    # /some/path/to/the/actual
+    # /home/user/code/project/name/bin
+    readonly JUNONIA_PATH="$(cd "$(dirname "$JUNONIA_TARGET")" && pwd -P)"
+  fi
 
   # Get the script name by removing the path and .sh suffix:
   # script
-  readonly JUNONIA_NAME="$(basename "$target" .sh)"
+  readonly JUNONIA_NAME="$(basename "$JUNONIA_TARGET" .sh)"
+  readonly JUNONIA_CAPNAME="$(awk -v n="$JUNONIA_NAME" 'BEGIN{print toupper(n)}')"
 
-  # Get the script path, go there, resolve the full path of symlinks with pwd
-  # /some/path/to/the/actual
-  # /home/user/code/project/name/bin
-  readonly JUNONIA_PATH="$(cd ${target%/$JUNONIA_NAME} && pwd -P)"
+  # Path to the default config file
+  readonly JUNONIA_CONFIG="$HOME/.$JUNONIA_NAME/${JUNONIA_NAME}rc.sh"
 
   # Determine if the path appears to be a UNIX style prefix by looking for
   # directories common to prefixes. Note that setting the prefix is just for
@@ -97,20 +140,14 @@ junonia_init () {
     unset JUNONIA_PREFIX
   fi
 
-  # Look in some particular paths for program markdown documentation.
-  for docdir in "$JUNONIA_PATH/../usr/share/doc/$JUNONIA_NAME" \
-                "$JUNONIA_PATH/docs" \
-                "$JUNONIA_PATH/doc"; do
-    if [ -d "$docdir" ] && [ -f "$docdir/$JUNONIA_NAME.md" ]; then
-      JUNONIA_DOCDIR="$docdir"
-    fi
-  done
-
   if [ -n "$JUNONIA_DEBUG" ]; then
     exec 3>&2
   else
     exec 3>/dev/null
   fi
+
+  # Indicate that init has happened
+  readonly JUNONIA_INIT=1
 }
 
 
@@ -255,6 +292,7 @@ _junonia_md2spec () {
       if(cmd) {
         spec()
       }
+
       for(i=0; i<NF-2; i++) {
         indent = indent "  "
       }
@@ -286,13 +324,14 @@ _junonia_md2spec () {
     # * `-option=bool_default`
     # * `-option VAL`
     # * `-option VAL=default`
-    # * `-option VAL1 [-option1 VAL2 ...]`
+    # * `-option VAL1 [-option VAL2 ...]`
+    # * `-option NAME=VALUE [-option NAME=VALUE ...]`
     options && /^\* `-[-A-Za-z0-9]+/ {
       gsub(/^\* `|`$/, "")
 
       if(NF > 2) {
         # Defaults are not allowed for multi-opts
-        opts[++n_opts] = $2 " [" $3 "]"
+        opts[++n_opts] = $1 " [" $2 "]"
       } else {
         split($1, a, "=")
         opt = a[1]
@@ -470,24 +509,46 @@ _junonia_md2help () {
 ### Argument parsing and program execution
 ###
 
+_junonia_var_gen () {
+cat << 'EOF'
+  set -a
+  . "$JUNONIA_CONFIG"
+  for v in $(env | awk -F= -v n="$JUNONIA_CAPNAME" '
+                       $0 ~ "^" n "_" {print $1}'); do
+    eval if [ \"'${'$v+set}\" = set ]\; then set=1\; else set=0\; fi
+    if [ "$set" = 1 ] && ! echo "$set_vars" | grep $v; then
+      eval echo export $v=\\\"\"'$'$v\"\\\"
+    fi
+  done
+EOF
+}
+
 # Accept an argument spec and arguments, produce a list of values for each
 # positional argument and option in the spec. If no option was specified, an
 # empty value is generated, such that every specified option has a value, even
 # if that value is empty.
-_junonia_parse_args () {
-
+_junonia_set_args () {
   # $1      The full text of a program argument spec.
   # $2 - $N The program name and arguments from the command line.
   spec="$1"
   shift
 
-  # We expect IFS to have been set to some non-default value, since things like
-  # spaces and newlines need to be ignored when passing the determined values
-  # back.  The output will be separated by this IFS, which will be something
-  # like the Record Separator (control character 30).
-  echo "$spec" | awk -v recsep="$_JUNONIA_IFS" '
-  function mapbool(b, opt) {
-    if(tolower(b) == "true" || b == "1") {
+  if [ -f "$JUNONIA_CONFIG" ]; then
+    set_vars="$(
+      for v in $(env | awk -F= -v n="$JUNONIA_CAPNAME" '
+                           $0 ~ "^" n "_" {print $1}'); do
+        eval if [ \"'${'$v+set}\" = set ]\; then echo $v\; fi
+      done)"
+    export JUNONIA_CONFIG
+    export JUNONIA_CAPNAME
+    eval "$(env sh -c "$(_junonia_var_gen)")"
+  fi
+
+  # Spaces and newlines need to be ignored when passing the determined values
+  # back. The output will be separated by an IFS that will allow this, which
+  # will be something like the Record Separator (control character 30).
+  awk_prog='function mapbool(b, opt) {
+    if(tolower(b) == "true" || b == "1" || b == "") {
       return "1"
     } else {
       if(tolower(b) == "false" || b == "0") {
@@ -616,7 +677,7 @@ _junonia_parse_args () {
     if(opt in opts) {
       # This option from the spec is one we have in the program arguments.
 
-      if($2 ~ /\[[A-Za-z0-9]+/) {
+      if($2 ~ /\[[A-Za-z0-9]/) {
         # The option can be specified multiple times (brackets around metavar
         # in the spec), so this option may have received multiple values.
 
@@ -640,17 +701,30 @@ _junonia_parse_args () {
             opts[opt] = def
           }
 
-          args = args mapbool(opts[opt])
+          args = args mapbool(opts[opt], opt)
         }
         delete opts[opt]
       }
     } else {
+      envopt = envname "_" substr(opt, 2)
+      gsub(/-/, "_", envopt)
+
       if(def) {
-        args = args mapbool(def)
+        args = args mapbool(def, opt)
       } else {
-        n = index($0, "=")
-        if(n) {
-          args = args substr($0, n + 1)
+        if($2 !~ /\[[A-Za-z0-9]/) {
+          n = index($0, "=")
+          if(n) {
+            args = args substr($0, n + 1)
+          }
+        }
+      }
+
+      if(ENVIRON[envopt]) {
+        if($2) {
+          args = args ENVIRON[envopt]
+        } else {
+          args = args mapbool(ENVIRON[envopt], opt)
         }
       }
     }
@@ -681,8 +755,10 @@ _junonia_parse_args () {
   # executed and increment to the next positional value.
   indented && $1 == pos[p] {
     if(func_name) {
+      envname = envname "_" $1
       func_name = func_name "_" $1
     } else {
+      envname = toupper($1)
       func_name = $1
     }
     indents = indents "  "
@@ -706,7 +782,10 @@ _junonia_parse_args () {
     }
 
     print func_name recsep args
-  }' - "$@"
+  }'
+
+  echo "$spec" | awk -v name="$JUNONIA_CAPNAME" -v recsep="$_JUNONIA_IFS" \
+                     "$JUNONIA_AWKS $awk_prog" - "$@"
 }
 
 # Receive function argument values, send them through the filter if needed,
@@ -831,6 +910,15 @@ junonia_run () {
     fulter_func=
   fi
 
+  # Look in some particular paths for program markdown documentation.
+  for docdir in "$JUNONIA_PATH/../usr/share/doc/$JUNONIA_NAME" \
+                "$JUNONIA_PATH/docs" \
+                "$JUNONIA_PATH/doc"; do
+    if [ -d "$docdir" ] && [ -f "$docdir/$JUNONIA_NAME.md" ]; then
+      JUNONIA_DOCDIR="$docdir"
+    fi
+  done
+
   # A directory containing markdown docs was found. Run with it.
   if [ -n "$JUNONIA_DOCDIR" ]; then
     junonia_runmd_filtered "$filter_func" "$JUNONIA_DOCDIR" "$@"
@@ -848,7 +936,7 @@ junonia_run () {
   # script_junonia_spec
   # so run with it.
   if command -v ${JUNONIA_NAME}_junonia_spec >/dev/null 2>&1; then
-    spec="$(_${JUNONIA_NAME}_junonia_spec)"
+    spec="$(${JUNONIA_NAME}_junonia_spec)"
     if [ -n "$spec" ]; then
       junonia_runspec_filtered "$filter_func" "$spec" "$@"
       return $?
@@ -862,15 +950,16 @@ junonia_run () {
   return 1
 }
 
-# Take a docs dir of md files, make spec, run the function with the parsed arg
-# values.
+# Take a docs dir of md files, one md file, or md contents as a string, make
+# the spec, run the function with the parsed arg values.
 junonia_runmd () {
   junonia_runmd_filtered "" "$@"
 }
 
-# Take a docs dir of md files, make spec, put the results through the filter
-# function, then run the function with the parsed arg values (which may have
-# been changed by the filter function).
+# Take a docs dir of md files, one md file, or md contents as a string, make
+# the spec, put the results through the filter function, then run the function
+# with the parsed arg values (which may have been changed by the filter
+# function).
 junonia_runmd_filtered () {
   filter_func="$1"
   shift
@@ -882,6 +971,7 @@ junonia_runmd_filtered () {
   ret=1
   spec_src_type=
   if [ -d "$md" ]; then
+    readonly JUNONIA_DOCDIR="$md"
     spec="$(_junonia_md2spec "$md"/*.md)"
     ret=$?
     spec_src_type="dir"
@@ -933,22 +1023,26 @@ _junonia_run_final () {
   spec="$1"
   shift
 
+  # Ready to start the run, so set up the execution environment. If junonia_run
+  # was called with auto-discovery then this already happened, but it's always
+  # safe to rerun init as it has a guard.
+  junonia_init
+
   # The argument values in the order defined in the spec.
-  if ! arg_vals="$(_junonia_parse_args "$spec" "$(basename "$0")" "$@")"; then
+  if ! arg_vals="$(_junonia_set_args "$spec" "$(basename "$0")" "$@")"; then
     # An error should have been supplied on stderr
     return 1
   fi
 
   # Since we're handling values that can be explicitly blank / empty, and
   # values that have whitespace that might need to be preserved, it's easiest
-  # to change the IFS to something other than space/tab/newline. We use the
-  # Record Separator (RS) control character (decimal 30).
+  # to change the IFS to something other than space/tab/newline.
   IFS="$_JUNONIA_IFS"
 
   # Pass the execution info to a filter function. This allows us to handle the
   # argument values as $@, and use shift to remove common options as specified
-  # by the filter function. Using a filter function is optional, and in that
-  # case every function will receive every option; all common options in the
-  # tree path.
+  # by the filter function. Using a user filter function is optional, and in
+  # that case every function will receive every option; all common options in
+  # the spec tree path.
   _junonia_filter_func "$filter_func" "$md" "$spec_src_type" "$spec" $arg_vals
 }
