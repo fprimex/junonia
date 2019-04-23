@@ -2,41 +2,106 @@
 ### Typical usage and program flow
 ###
 
-# target="$(junonia_bootstrap)"
-# . "$(dirname "$target")"/some/path/to/junonia.sh
+# In the top level, user script:
+# run its own copy of junonia_bootstrap to set JUNONIA_TARGET and JUNONIA_PATH
+# . "$JUNONIA_PATH/some/path/to/junonia.sh to source junonia
 # junonia_run, the main entrypoint that runs auto-discovery
-#   junonia_init to set up the environment
-#   junonia_run_* function chosen based on auto-discovery
-#     possibly _junonia_md2spec to generate spec from md files
-#     _junonia_run_final to collect all of the run options and start execution
-#       _junonia_set_args to determine arg values from:
-#                         spec defaults, config file, env vars, and cli args
-#       _junonia_filter_func to receive all arg values and run the function
-#         possibly run help and exit
-#         possibly run a user filter function to preprocess args
-#         run the specified function with the fully resolved arguments
+#
+# Then, in junonia.sh the following is run:
+# junonia_init to set up the environment
+# junonia_run_* function chosen based on auto-discovery
+#   possibly _junonia_md2spec to generate spec from md files
+#   _junonia_run_final to collect all of the run options and start execution
+#     _junonia_set_args to determine arg values from:
+#                       spec defaults, config file, env vars, and cli args
+#     _junonia_exec to receive all arg values and run the function
+#       possibly run help and exit
+#       possibly run a user filter function to preprocess args
+#       run the specified function with the fully resolved arguments
+
 
 ###
 ### Copy of the bootstrap function
 ###
+### For a compact version of this script to copy into your own script, see
+### junonia_bootstrap.sh
+###
 
+# This function can be copied to the top level script to set absolute paths to
+# the script. From there, junonia.sh, other shell libraries, and other assets
+# can be loaded or referenced. For example, for a project with directories like
+# the following:
+
+# /home/user/foo/code/project.git/script
+# /home/user/foo/code/project.git/lib/junonia.sh
+
+# the following code could be used in script:
+
+#   # copied from junonia.sh
+#   junonia_bootstrap () {
+#     ...
+#   }
+#
+#   junonia_bootstrap
+#   . "$JUNONIA_PATH/path/relative/to/script/target/junonia.sh"
+#
+#   # continue using junonia functions like junonia_run, echoerr, etc...
+
+# Note one oddity: in order to keep the global variable namespace unpolluted,
+# the JUNONIA_PATH variable is used to hold the value of the symbolic link path
+# until it is finally set to the absolute path to the directory containing the
+# script. In this way only the variables ultimately set, JUNONIA_TARGET and
+# JUNONIA_PATH, are created / used.
+
+# Determine the script location. With the exception of the function name and
+# globals set, this is generic and does not rely on anything specific to the
+# rest of junonia. Use this in any script and the following will be set:
+# JUNONIA_TARGET Absolute path to script being run with symlinks resolved.
+# JUNONIA_PATH   Absolute path to directory containing script being run.
 junonia_bootstrap () {
+  # Get the command used to start this script
   JUNONIA_TARGET="$0"
+
+  # If executing via a series of symlinks, resolve them all the way back to the
+  # script itself. Some danger here of infinitely cycling.
   while [ -h "$JUNONIA_TARGET" ]; do
-    link="$(file -h "$JUNONIA_TARGET" | sed 's/^.*symbolic link to //')"
-    if [ "$(echo "$link" | cut -c -1)" = "/" ]; then
-      JUNONIA_TARGET="$link"
+
+    # Begin usage of JUNONIA_PATH to hold the link path.
+
+    # Look at what this link points to
+    JUNONIA_PATH="$(file -h "$JUNONIA_TARGET" | \
+                    sed 's/^.*symbolic link to //')"
+
+    if [ "$(echo "$JUNONIA_PATH" | cut -c -1)" = "/" ]; then
+      # Link path is absolute (first character is /); just need to follow it.
+      JUNONIA_TARGET="$JUNONIA_PATH"
     else
-      JUNONIA_TARGET="${JUNONIA_TARGET%/*}"
-      JUNONIA_TARGET="$JUNONIA_TARGET/$link"
+      # Link path is relative, need to relatively follow it.
+      # e.g. running `./foo` and link is to `../../bar`
+      # Go look at ./../../bar
+      JUNONIA_TARGET="$(dirname $JUNONIA_TARGET)"
+      JUNONIA_TARGET="$JUNONIA_TARGET/$JUNONIA_PATH"
     fi
+
+    # End usage of JUNONIA_PATH to hold the link path.
+
   done
-  readonly JUNONIA_TARGET
+
+  # Now TARGET should be like the following, where 'script' is not a symlink:
+  # /some/path/to/the/actual/script
+  # or
+  # ./../some/path/to/the/actual/script
+  #
+  # Set absolute paths for TARGET and PATH
+  # TARGET: /home/user/code/project/name/bin/script
+  # PATH:   /home/user/code/project/name/bin
   readonly JUNONIA_PATH="$(cd "$(dirname "$JUNONIA_TARGET")" && pwd -P)"
+  readonly JUNONIA_TARGET="$JUNONIA_PATH/$(basename $JUNONIA_TARGET)"
 }
 
+
 ###
-### Global constants
+### Globals
 ###
 
 # Intended to be user configurable / changed at any time
@@ -47,9 +112,12 @@ JUNONIA_COL2=60
 # This may have been set before sourcing. Respect that and just document it.
 #JUNONIA_DEBUG=
 
-# Intended to be used internally and not changed.
+# Intended to not be changed.
 # This is the Record Separator (RS) control character (decimal 30).
-readonly _JUNONIA_IFS=""
+readonly JUNONIA_RS=""
+
+# This is the Unit Separator (US) control character (decimal 31).
+readonly JUNONIA_US=""
 
 
 ###
@@ -68,87 +136,6 @@ echodebug () { [ -n "$JUNONIA_DEBUG" ] && echoerr "[DEBUG] $@"; return 0; }
 
 # Same but no prefix
 echodebug_raw () { [ -n "$JUNONIA_DEBUG" ] && echoerr_raw "$@"; return 0; }
-
-
-###
-### Execution environment setup and management
-###
-
-junonia_init () {
-  if [ -n "$JUNONIA_INIT" ]; then
-    # init has already been run
-    return
-  fi
-
-  # Use TMPDIR if it is set. If not, set it to /tmp
-  if [ -z "$TMPDIR" ]; then
-    TMPDIR=/tmp
-  fi
-
-  # Strip the trailing / from TMPDIR if there is one
-  export TMPDIR="$(echo "$TMPDIR" | sed 's#/$##')"
-
-  # Determine the script location. Note that this is not POSIX but portable to
-  # many systems with nearly any kind of implementation of readlink.
-
-  # Get the absolute path to command used to start this script. JUNONIA_TARGET
-  # can be set to a path to avoid the bootstrap process if that path is known
-  # in advance, or can be set in advance. Otherwise bootstrapping will be
-  # attempted if the function is defined.
-  if [ -z "$JUNONIA_TARGET" ]; then
-    if ! JUNONIA_TARGET="$(junonia_bootstrap >/dev/null 2>&1)"; then
-      echoerr "failed to bootstrap and init"
-      return 1
-    fi
-  fi
-
-  readonly JUNONIA_TARGET
-
-  if [ -z "$JUNONIA_PATH" ]; then
-    # Get the script path, go there, resolve the full path of symlinks with pwd
-    # /some/path/to/the/actual
-    # /home/user/code/project/name/bin
-    readonly JUNONIA_PATH="$(cd "$(dirname "$JUNONIA_TARGET")" && pwd -P)"
-  fi
-
-  # Get the script name by removing the path and .sh suffix:
-  # script
-  readonly JUNONIA_NAME="$(basename "$JUNONIA_TARGET" .sh)"
-  readonly JUNONIA_CAPNAME="$(awk -v n="$JUNONIA_NAME" 'BEGIN{print toupper(n)}')"
-
-  # Path to the default config file
-  readonly JUNONIA_CONFIG="$HOME/.$JUNONIA_NAME/${JUNONIA_NAME}rc.sh"
-
-  # Determine if the path appears to be a UNIX style prefix by looking for
-  # directories common to prefixes. Note that setting the prefix is just for
-  # convenience so that a script can then check for more directories and set
-  # more of its own convenience variables.
-  JUNONIA_PREFIX="$(dirname "$JUNONIA_PATH")"
-  if [ -d "$JUNONIA_PREFIX/bin"     ] || \
-     [ -d "$JUNONIA_PREFIX/sbin"    ] || \
-     [ -d "$JUNONIA_PREFIX/lib"     ] || \
-     [ -d "$JUNONIA_PREFIX/libexec" ] || \
-     [ -d "$JUNONIA_PREFIX/usr"     ] || \
-     [ -d "$JUNONIA_PREFIX/etc"     ] || \
-     [ -d "$JUNONIA_PREFIX/opt"     ]; then
-    # This is a prefix:
-    # /home/user/code/project/name
-    readonly JUNONIA_PREFIX
-  else
-    # This is *not* a prefix:
-    # /some/path/to/the/actual
-    unset JUNONIA_PREFIX
-  fi
-
-  if [ -n "$JUNONIA_DEBUG" ]; then
-    exec 3>&2
-  else
-    exec 3>/dev/null
-  fi
-
-  # Indicate that init has happened
-  readonly JUNONIA_INIT=1
-}
 
 
 ###
@@ -250,6 +237,124 @@ $_awk_echoerr_raw
 $_awk_echodebug
 $_awk_echodebug_raw
 "
+
+
+###
+### Configuration file management
+###
+
+# Add, remove, or modify given values in a shell config file at the given path.
+# Remove values by providing an empty value. If no file exists it will be
+# created.
+#
+# junonia_update_config FILEPATH VAR [VAR ...]
+#
+# Where VAR is NAME=VALUE to set the value and NAME= or NAME to remove the
+# value.
+junonia_update_config () {
+    if [ -f "$1" ]; then
+        echodebug "[DEBUG] Modifying $1"
+    else
+        echodebug "[DEBUG] Creating $1"
+        if ! touch "$1"; then
+            echoerr "ERROR: Could not create $1"
+            return 1
+        fi
+    fi
+
+    if ! config="$(awk '# Generate the config from arg input and existing file.
+
+        # Given a potential var=value line, separate them, set VARNAME
+        # and VARVALUE.
+        function splitvar(var) {
+            # Find = or the end
+            eq = index(var, "=")
+            if(eq == 0) {
+                eq = length(var + 1)
+            }
+
+            # Extract the name and value
+            VARNAME = substr(var, 1, eq - 1)
+            VARVALUE = substr(var, eq + 1)
+
+            # Enclose the value in quotes if not already
+            if(VARVALUE && VARVALUE !~ /^".*"$/) {
+                VARVALUE = "\"" VARVALUE "\""
+            }
+
+            # Error if VARNAME is not a valid shell variable name
+            if(VARNAME !~ varname_re) {
+                VARNAME=""
+                VARVALUE=""
+                return 1
+            }
+            return 0
+        }
+
+        BEGIN {
+            # Matches valid shell variable names
+            varname_re = "[A-Za-z_][A-Za-z0-9_]*"
+
+            # Arg1 is the config file. The rest are config entries to process,
+            # so make them into an array and remove them from the arg vector.
+            for(i=2; i<ARGC; i++) {
+                if(splitvar(ARGV[i]) == 0) {
+                    config[VARNAME] = VARVALUE
+                    ARGV[i] = ""
+                    vars++
+                }
+            }
+
+            # No variables were given to process.
+            if(!vars) {
+                exit 1
+            }
+
+            ARGC = 2
+        }
+
+        # Start processing the config file.
+
+        # This line is a variable we were given to modify.
+        $0 ~ "^" varname_re && splitvar($0) == 0 && config[VARNAME] {
+            # If no value was supplied, skip it, effectively removing it from
+            # the config file.
+            if(! config[VARNAME]) {
+                next
+            }
+
+            # There is a value, so write that and remove it from the array
+            # since it was processed.
+            print VARNAME "=" config[VARNAME]
+            delete config[VARNAME]
+            next
+        }
+
+        # Preserve unmodified lines as-is.
+        { print }
+
+        END {
+            # If there are still config entries that means we were given
+            # variables to process that were not already in the config file.
+            # Those should then be added at the end.
+            for(c in config) {
+                if(config[c]) {
+                    print c "=" config[c]
+                }
+            }
+        }
+    ' "$@")"; then
+        echoerr "Error processing configuration"
+        echoerr "$config"
+        return 1
+    fi
+
+    if ! echo "$config" | tee "$1"; then
+        echoerr "Error writing configuration to file $1"
+        echoerr "$config"
+        return 1
+    fi
+}
 
 
 ###
@@ -506,7 +611,88 @@ _junonia_md2help () {
 
 
 ###
-### Argument parsing and program execution
+### Execution environment setup and management
+###
+
+junonia_init () {
+  if [ -n "$JUNONIA_INIT" ]; then
+    # init has already been run
+    return
+  fi
+
+  # Use TMPDIR if it is set. If not, set it to /tmp
+  if [ -z "$TMPDIR" ]; then
+    TMPDIR=/tmp
+  fi
+
+  # Strip the trailing / from TMPDIR if there is one
+  export TMPDIR="$(echo "$TMPDIR" | sed 's#/$##')"
+
+  # Determine the script location. Note that this is not POSIX but portable to
+  # many systems with nearly any kind of implementation of readlink.
+
+  # Get the absolute path to command used to start this script. JUNONIA_TARGET
+  # can be set to a path to avoid the bootstrap process if that path is known
+  # in advance, or can be set in advance. Otherwise bootstrapping will be
+  # attempted if the function is defined.
+  if [ -z "$JUNONIA_TARGET" ]; then
+    if ! JUNONIA_TARGET="$(junonia_bootstrap >/dev/null 2>&1)"; then
+      echoerr "failed to bootstrap and init"
+      return 1
+    fi
+  fi
+
+  readonly JUNONIA_TARGET
+
+  if [ -z "$JUNONIA_PATH" ]; then
+    # Get the script path, go there, resolve the full path of symlinks with pwd
+    # /some/path/to/the/actual
+    # /home/user/code/project/name/bin
+    readonly JUNONIA_PATH="$(cd "$(dirname "$JUNONIA_TARGET")" && pwd -P)"
+  fi
+
+  # Get the script name by removing the path and .sh suffix:
+  # script
+  readonly JUNONIA_NAME="$(basename "$JUNONIA_TARGET" .sh)"
+  readonly JUNONIA_CAPNAME="$(awk -v n="$JUNONIA_NAME" 'BEGIN{print toupper(n)}')"
+
+  # Path to the default config file
+  readonly JUNONIA_CONFIG="$HOME/.$JUNONIA_NAME/${JUNONIA_NAME}rc.sh"
+
+  # Determine if the path appears to be a UNIX style prefix by looking for
+  # directories common to prefixes. Note that setting the prefix is just for
+  # convenience so that a script can then check for more directories and set
+  # more of its own convenience variables.
+  JUNONIA_PREFIX="$(dirname "$JUNONIA_PATH")"
+  if [ -d "$JUNONIA_PREFIX/bin"     ] || \
+     [ -d "$JUNONIA_PREFIX/sbin"    ] || \
+     [ -d "$JUNONIA_PREFIX/lib"     ] || \
+     [ -d "$JUNONIA_PREFIX/libexec" ] || \
+     [ -d "$JUNONIA_PREFIX/usr"     ] || \
+     [ -d "$JUNONIA_PREFIX/etc"     ] || \
+     [ -d "$JUNONIA_PREFIX/opt"     ]; then
+    # This is a prefix:
+    # /home/user/code/project/name
+    readonly JUNONIA_PREFIX
+  else
+    # This is *not* a prefix:
+    # /some/path/to/the/actual
+    unset JUNONIA_PREFIX
+  fi
+
+  if [ -n "$JUNONIA_DEBUG" ]; then
+    exec 3>&2
+  else
+    exec 3>/dev/null
+  fi
+
+  # Indicate that init has happened
+  readonly JUNONIA_INIT=1
+}
+
+
+###
+### Argument parsing
 ###
 
 _junonia_var_gen () {
@@ -626,7 +812,7 @@ _junonia_set_args () {
             func_name = func_name "_" ARGV[i+1]
           }
 
-          print func_name "_help" recsep args
+          print func_name "_help" RS args
           e = 0
           exit
         }
@@ -728,7 +914,7 @@ _junonia_set_args () {
         }
       }
     }
-    args = args recsep
+    args = args RS
     next
   }
 
@@ -737,14 +923,14 @@ _junonia_set_args () {
   # value and increment to the next positional value.
   indented && $0 ~ /^ *[_A-Z0-9]+=*/ {
     if(pos[p] != "") {
-      args = args pos[p] recsep
+      args = args pos[p] RS
       p++
     } else {
       n = index($0, "=")
       if(n) {
-        args = args substr($0, n + 1) recsep
+        args = args substr($0, n + 1) RS
       } else {
-        args = args "" recsep
+        args = args "" RS
       }
     }
     next
@@ -781,129 +967,25 @@ _junonia_set_args () {
       exit 1
     }
 
-    print func_name recsep args
+    print func_name RS args
   }'
 
-  echo "$spec" | awk -v name="$JUNONIA_CAPNAME" -v recsep="$_JUNONIA_IFS" \
+  echo "$spec" | awk -v name="$JUNONIA_CAPNAME" -v RS="$JUNONIA_RS" \
+                     -v US="$JUNONIA_US"
                      "$JUNONIA_AWKS $awk_prog" - "$@"
 }
 
-# Receive function argument values, send them through the filter if needed,
-# then execute the specified function with the values.
-_junonia_filter_func () {
-  # Each value from the parsed args are now their own word, so the IFS can go
-  # back to normal.
-  unset IFS
 
-  filter_func="$1"
-  shift
-
-  md="$1"
-  shift
-
-  spec_src_type="$1"
-  shift
-
-  spec="$1"
-  shift
-
-  func="$1"
-  shift
-
-  if [ -z "$func" ]; then
-    echoerr "no operation given to perform"
-    return 1
-  fi
-
-  # Check for help
-  helpfunc=
-  if echo "$func" | grep -Eq '_help$'; then
-    helpfunc="${func%_help}"
-  fi
-
-  if [ -n "$helpfunc" ]; then
-    cmd="$(echo $helpfunc | sed 's/_/ /g')"
-    case "$spec_src_type" in
-      dir)
-        if [ -f "$md/$helpfunc.md" ]; then
-          {
-            cat "$md/$helpfunc.md"
-            find -E "$md" -type f -regex "$md/$helpfunc"'_[^_]+\.md' \
-               -exec cat {} \;
-          } | _junonia_md2help "$cmd"
-        else
-          if command -v $helpfunc >/dev/null 2>&1; then
-            echoerr "help not found for command: $cmd"
-          else
-            echoerr "command not found: $cmd"
-          fi
-        fi
-        return 0
-        ;;
-      file)
-        cat "$md" | _junonia_md2help "$cmd"
-        return 0
-        ;;
-      md_string)
-        echo "$md" | _junonia_md2help "$cmd"
-        return 0
-        ;;
-      spec_string)
-        echo "$spec" | awk '{sub(/^# /, ""); print}'
-        return 0
-        ;;
-    esac
-  fi
-
-  shift_n=0
-
-  # If there is a filter function, then run it.
-  if [ -n "$filter_func" ] && command -v "$filter_func" >/dev/null 2>&1; then
-     $filter_func "$@"
-     shift_n=$?
-  fi
-
-  # The filter function might indicate via its return value that we should
-  # shift off some common (and possibly other) values.
-  i=0
-  while [ $i -lt $shift_n ]; do
-    shift
-    i=$(( $i + 1 ))
-  done
-
-  i=0
-  while ! command -v $func >/dev/null 2>&1; do
-    case $i in
-      0) p="$JUNONIA_PATH/$func.sh";;
-      1) p="$JUNONIA_PATH/cmd/$func.sh";;
-      2) p="$JUNONIA_PATH/cmds/$func.sh";;
-      3) p="$JUNONIA_PREFIX/lib/$JUNONIA_NAME/$func.sh";;
-      4) p="$JUNONIA_PREFIX/lib/$JUNONIA_NAME/cmd/$func.sh";;
-      5) p="$JUNONIA_PREFIX/lib/$JUNONIA_NAME/cmds/$func.sh";;
-      6) p="$JUNONIA_PREFIX/lib/$JUNONIA_NAME/command/$func.sh";;
-      7) p="$JUNONIA_PREFIX/lib/$JUNONIA_NAME/commands/$func.sh";;
-      *)
-        echoerr "command not found: $(echo $func | sed 's/_/ /g')"
-        return 1
-        ;;
-    esac
-
-    i=$(( $i + 1 ))
-
-    if [ -f "$p" ]; then
-      . "$p"
-    fi
-  done
-
-  $func "$@"
-}
+###
+### User facing run entry functions
+###
 
 # Perform a search for defaults and run with them if found.
 junonia_run () {
   junonia_init
 
   # Look for a filter function named
-  # script_junonia_filter
+  # ${JUNONIA_NAME}_junonia_filter (e.g. myscript_junonia_filter)
   if command -v ${JUNONIA_NAME}_junonia_filter >/dev/null 2>&1; then
     filter_func=${JUNONIA_NAME}_junonia_filter
   else
@@ -1010,6 +1092,11 @@ junonia_runspec_filtered () {
   _junonia_run_final "$filter_func" "" "spec_string" "$@"
 }
 
+
+###
+### Run execution
+###
+
 _junonia_run_final () {
   filter_func="$1"
   shift
@@ -1037,12 +1124,122 @@ _junonia_run_final () {
   # Since we're handling values that can be explicitly blank / empty, and
   # values that have whitespace that might need to be preserved, it's easiest
   # to change the IFS to something other than space/tab/newline.
-  IFS="$_JUNONIA_IFS"
+  IFS="$_JUNONIA_RS"
 
   # Pass the execution info to a filter function. This allows us to handle the
   # argument values as $@, and use shift to remove common options as specified
   # by the filter function. Using a user filter function is optional, and in
   # that case every function will receive every option; all common options in
   # the spec tree path.
-  _junonia_filter_func "$filter_func" "$md" "$spec_src_type" "$spec" $arg_vals
+  _junonia_exec "$filter_func" "$md" "$spec_src_type" "$spec" $arg_vals
+}
+
+# Receive function argument values, send them through the filter if needed,
+# then execute the specified function with the values.
+_junonia_exec () {
+  # Each value from the parsed args are now their own word, so the IFS can go
+  # back to normal.
+  unset IFS
+
+  filter_func="$1"
+  shift
+
+  md="$1"
+  shift
+
+  spec_src_type="$1"
+  shift
+
+  spec="$1"
+  shift
+
+  func="$1"
+  shift
+
+  if [ -z "$func" ]; then
+    echoerr "no operation given to perform"
+    return 1
+  fi
+
+  # Check for help
+  helpfunc=
+  if echo "$func" | grep -Eq '_help$'; then
+    helpfunc="${func%_help}"
+  fi
+
+  if [ -n "$helpfunc" ]; then
+    cmd="$(echo $helpfunc | sed 's/_/ /g')"
+    case "$spec_src_type" in
+      dir)
+        if [ -f "$md/$helpfunc.md" ]; then
+          {
+            cat "$md/$helpfunc.md"
+            find -E "$md" -type f -regex "$md/$helpfunc"'_[^_]+\.md' \
+               -exec cat {} \;
+          } | _junonia_md2help "$cmd"
+        else
+          if command -v $helpfunc >/dev/null 2>&1; then
+            echoerr "help not found for command: $cmd"
+          else
+            echoerr "command not found: $cmd"
+          fi
+        fi
+        return 0
+        ;;
+      file)
+        cat "$md" | _junonia_md2help "$cmd"
+        return 0
+        ;;
+      md_string)
+        echo "$md" | _junonia_md2help "$cmd"
+        return 0
+        ;;
+      spec_string)
+        echo "$spec" | awk '{sub(/^# /, ""); print}'
+        return 0
+        ;;
+    esac
+  fi
+
+  shift_n=0
+
+  # If there is a filter function, then run it.
+  if [ -n "$filter_func" ] && command -v "$filter_func" >/dev/null 2>&1; then
+     $filter_func "$@"
+     shift_n=$?
+  fi
+
+  # The filter function might indicate via its return value that we should
+  # shift off some common (and possibly other) values.
+  i=0
+  while [ $i -lt $shift_n ]; do
+    shift
+    i=$(( $i + 1 ))
+  done
+
+  i=0
+  while ! command -v $func >/dev/null 2>&1; do
+    case $i in
+      0) p="$JUNONIA_PATH/$func.sh";;
+      1) p="$JUNONIA_PATH/cmd/$func.sh";;
+      2) p="$JUNONIA_PATH/cmds/$func.sh";;
+      3) p="$JUNONIA_PREFIX/lib/$JUNONIA_NAME/$func.sh";;
+      4) p="$JUNONIA_PREFIX/lib/$JUNONIA_NAME/cmd/$func.sh";;
+      5) p="$JUNONIA_PREFIX/lib/$JUNONIA_NAME/cmds/$func.sh";;
+      6) p="$JUNONIA_PREFIX/lib/$JUNONIA_NAME/command/$func.sh";;
+      7) p="$JUNONIA_PREFIX/lib/$JUNONIA_NAME/commands/$func.sh";;
+      *)
+        echoerr "command not found: $(echo $func | sed 's/_/ /g')"
+        return 1
+        ;;
+    esac
+
+    i=$(( $i + 1 ))
+
+    if [ -f "$p" ]; then
+      . "$p"
+    fi
+  done
+
+  $func "$@"
 }
