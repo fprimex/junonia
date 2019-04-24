@@ -21,6 +21,39 @@
 
 
 ###
+### Globals
+###
+
+# Intended to be user configurable / changed at any time
+
+JUNONIA_WRAP=78
+JUNONIA_COL1=18
+JUNONIA_COL2=60
+
+# Intended to not be changed.
+
+# Information Separator control characters (IS4 - IS1)
+readonly JUNONIA_FS="" # File   Separator (FS / IS4 / dec 28)
+readonly JUNONIA_GS="" # Group  Separator (GS / IS3 / dec 29)
+readonly JUNONIA_RS="" # Record Separator (RS / IS2 / dec 30)
+readonly JUNONIA_US="" # Unit   Separator (US / IS1 / dec 31)
+
+# Variables set by junonia_bootstrap:
+# JUNONIA_TARGET  Absolute path to the script
+# JUNONIA_PATH    Absolute path to the directory containing the script
+
+# Variables set by  junonia_init:
+# JUNONIA_NAME    Name of the script after resolving symlinks and removing .sh
+# JUNONIA_CAPNAME Name in all caps
+# JUNONIA_CONFIG  Path to script rc file
+# JUNONIA_INIT    Init guard to prevent attempted re-inits
+# TMPDIR          Set if unset, consistently formatted with ending '/' removed
+
+# This variable is used / checked, but is not set by junonia itself.
+# JUNONIA_DEBUG   Whether or not to show output on stderr from echodebug (FD3)
+
+
+###
 ### Copy of the bootstrap function
 ###
 ### For a compact version of this script to copy into your own script, see
@@ -43,7 +76,7 @@
 #   }
 #
 #   junonia_bootstrap
-#   . "$JUNONIA_PATH/path/relative/to/script/target/junonia.sh"
+#   . "$JUNONIA_PATH/lib/junonia.sh"
 #
 #   # continue using junonia functions like junonia_run, echoerr, etc...
 
@@ -56,6 +89,7 @@
 # Determine the script location. With the exception of the function name and
 # globals set, this is generic and does not rely on anything specific to the
 # rest of junonia. Use this in any script and the following will be set:
+#
 # JUNONIA_TARGET Absolute path to script being run with symlinks resolved.
 # JUNONIA_PATH   Absolute path to directory containing script being run.
 junonia_bootstrap () {
@@ -93,31 +127,11 @@ junonia_bootstrap () {
   # ./../some/path/to/the/actual/script
   #
   # Set absolute paths for TARGET and PATH
-  # TARGET: /home/user/code/project/name/bin/script
-  # PATH:   /home/user/code/project/name/bin
+  # PATH   /home/user/code/project/name/bin
+  # TARGET /home/user/code/project/name/bin/script
   readonly JUNONIA_PATH="$(cd "$(dirname "$JUNONIA_TARGET")" && pwd -P)"
   readonly JUNONIA_TARGET="$JUNONIA_PATH/$(basename $JUNONIA_TARGET)"
 }
-
-
-###
-### Globals
-###
-
-# Intended to be user configurable / changed at any time
-JUNONIA_WRAP=78
-JUNONIA_COL1=18
-JUNONIA_COL2=60
-
-# This may have been set before sourcing. Respect that and just document it.
-#JUNONIA_DEBUG=
-
-# Intended to not be changed.
-# This is the Record Separator (RS) control character (decimal 30).
-readonly JUNONIA_RS=""
-
-# This is the Unit Separator (US) control character (decimal 31).
-readonly JUNONIA_US=""
 
 
 ###
@@ -125,38 +139,21 @@ readonly JUNONIA_US=""
 ###
 
 # Print messages to stderr. Use printf to ensure the message is verbatim.
-# E.g. do not interpret \n in JSON.
-echoerr () { printf "[ERROR] %s\n" "$@" 1>&2; }
+# e.g. do not interpret \n in JSON.
+echoerr_raw () { printf '%s\n' "$@" 1>&2; }
+echoerr () { echoerr_raw "[ERROR] $@"; }
 
-# Same but no prefix
-echoerr_raw () { printf "%s\n" "$@" 1>&2; }
-
-# Print debug messages if the TF_LOG environment variable is set.
-echodebug () { [ -n "$JUNONIA_DEBUG" ] && echoerr "[DEBUG] $@"; return 0; }
-
-# Same but no prefix
-echodebug_raw () { [ -n "$JUNONIA_DEBUG" ] && echoerr_raw "$@"; return 0; }
-
-
-###
-### Shell utility functions
-###
-
-random_enough () {
-  awk -v s="$(/bin/sh -c 'echo $$')" '
-    BEGIN{
-      srand(s)
-      r=rand() rand()
-      gsub(/0\./,"",r)
-      print r
-    }'
-}
+# Print debug messages to file descriptor 3, which will either go to stderr if
+# debug output is enabled or /dev/null if it is not.
+echodebug_raw () { printf '%s\n' "$@" 1>&3; }
+echodebug () { echodebug_raw "[DEBUG] $@"; }
 
 
 ###
 ### AWK utility functions
 ###
 
+# Convenience functions for error and debug output
 _awk_echoerr='function echoerr(msg) {
   printf "[ERROR] %s\n", msg >"/dev/stderr"
 }'
@@ -177,55 +174,152 @@ _awk_echodebug_raw='function echodebug_raw(msg) {
   }
 }'
 
-# Wrap a long line to a specified width and optionally prefixed
 _awk_hardwrap='
+  # Wrap a long line to a specified width and optionally add a prefix / indent.
+  #
+  # Arguments
+  # ---------
+  # line    Text to wrap
+  # width   Line width to wrap to
+  # pre     Prefix string such as an indent
+  #
+  # Locals
+  # ------
+  # str     Portion of the line being wrapped
+  # n       Index of the next space in the line
+  # wrapped Final wrapped result
   function hardwrap(line, width, pre,
                     str, n, wrapped) {
+
+    # The start of the line will be removed as it is wrapped, so continue
+    # producing wrapped lines as long as line is longer than the wrap width.
     while(length(line) > width) {
+
+      # Need to deal with lines that have no spaces and cannot be wrapped.
       n = index(line, " ")
       if(n == 0) {
         break
       }
 
       if(n > width) {
+        # The next space is beyond the wrap, so wrap on that space.
         str = substr(line, 1, n - 1)
       } else {
+        # The next space is within the wrap width, so take a chunk of the line
+        # that is the length of the wrap width.
         str = substr(line, 1, width)
       }
 
+      # Remove everything at the end of the string that is the last space
+      # followed by not a space.
       sub(/ [^ ]*$/, "", str)
+
+      # Strip leading space from the chunk so it will be aligned.
       sub(/^ /, "", str)
+
+      # Add this wrapped line to the hardwrapped result.
       wrapped = wrapped pre str "\n"
+
+      # Removed the portion that was just wrapped from the line for continued
+      # processing.
       line = substr(line, length(str) + 2, length(line))
     }
 
+    # There probably is a bit of text that is leftover. It needs to be aligned
+    # and added to the wrapped result.
     if(line) {
       sub(/^ */, "", line)
       wrapped = wrapped pre line "\n"
     }
 
+    # Send back the hardwrapped string with the final newline removed.
     return substr(wrapped, 1, length(wrapped) - 1)
   }
 '
 
 _awk_twocol='
+  # Given two strings and specifications for two columns, format the text side
+  # by side in two columns.
+  #
+  # Arguments
+  # ---------
+  # text1     Text to go into the first column
+  # text2     Text to go into the second column
+  # col1      Width of column one
+  # col2      Width of column two
+  # gutter    Text to go in between the columns
+  # pre       Text to go in front of the complete text, like an indent
+  #
+  # Locals
+  # ------
+  # fmt       Print format for each wrapped and combined line
+  # text1a    Array of lines in text1
+  # text2a    Array of lines in text2
+  # i         Iterator variable
+  # formatted Final result
   function twocol(text1, text2, col1, col2, gutter, pre,
                   fmt, text1a, text2a, i, formatted) {
+    # Wrap each line to the desired column width.
     text1 = hardwrap(text1, col1)
     text2 = hardwrap(text2, col2)
-    gutter = sprintf("%" gutter "s", "")
+
+    # Assemble the print format. e.g.
+    # Prefix 2 spaces, col1 20, gutter 1 space, col2 40
+    # "  %-20s %-40s"
     fmt = pre "%-" col1 "s" gutter "%-" col2 "s"
 
+    # Put each line of each hardwrapped column in arrays
     split(text1, text1a, "\n")
     split(text2, text2a, "\n")
 
+    # Iterate over the arrays and put the lines next to each other using the
+    # assembled format.
     i = 1
     while(text1a[i] || text2a[i]) {
       formatted = formatted sprintf(fmt, text1a[i], text2a[i]) "\n"
       i++
     }
 
+    # Send back the final, two column formatted text with the final newline
+    # removed.
     return substr(formatted, 1, length(formatted) - 1)
+  }
+'
+
+# This convenience function is a POSIX way of getting some random digits. It is
+# so-called 'randomish' because it is NOT CRYPTOGRAPHICALLY SOUND and SHOULD
+# NOT BE USED FOR CRYPTOGRAPHIC PURPOSES. It does, however, produce things that
+# are random enough for temporary file names and the like.
+#
+# The seed HAS to be sufficient in order for this to work. Sending the current
+# time, for example, is not usually sufficient. See the shell wrapper for an
+# example of a suitable seed.
+_awk_randomish_int='
+  function randomish_int(s, n) {
+    # A seed has to be given
+    if(! s) {
+      exit 1
+    }
+
+    # Default to 10 digits
+    if(! n) {
+      n=10
+    }
+
+    # As mentioned above, the seed given here needs to be suitable.
+    srand(s)
+
+    # Initial accumulation. String leading zeros from this one so the result
+    # is useful as an integer.
+    r = rand()
+    sub(/0\.0*/, "", r)
+
+    # Build up enough digits, then take the first n of them.
+    while(length(r) < n) {
+      r = r rand()
+      sub(/0\./, "", r)
+    }
+    return substr(r, 1, n)
   }
 '
 
@@ -236,7 +330,27 @@ $_awk_echoerr
 $_awk_echoerr_raw
 $_awk_echodebug
 $_awk_echodebug_raw
+$_awk_randomish_int
 "
+
+
+###
+### Shell utility functions
+###
+
+# Shell version of _awk_randomish_int. See its documentation for VERY important
+# information on appropriate usage. With no argument provided it uses the
+# default in the awk function.
+randomish_int () {
+  awk_prog='BEGIN { printf "%s", randomish_int(s, n) }'
+
+  # Provide a seed to awk's srand that is the process ID of a new sh process.
+  if ! awk -v s="$(/bin/sh -c 'echo $$')" \
+           -v n="$1" "$_awk_randomish_int $awk_prog"; then
+    echoerr 'unable to generate random int'
+    return 1
+  fi
+}
 
 
 ###
@@ -522,7 +636,7 @@ _junonia_md2help () {
     }
 
     subcmd && ! /^$/ {
-      txt = txt twocol(subcmd, $0, col1 - 3, col2, 1, "  ") "\n"
+      txt = txt twocol(subcmd, $0, col1 - 3, col2, " ", "  ") "\n"
       next
     }
 
@@ -567,7 +681,7 @@ _junonia_md2help () {
     }
 
     positional && /^[A-Za-z0-9]/ {
-      txt = txt twocol(param_col1, $0, col1 - 3, col2, 1, "  ") "\n"
+      txt = txt twocol(param_col1, $0, col1 - 3, col2, " ", "  ") "\n"
     }
 
     /^### Options/ {
@@ -589,7 +703,7 @@ _junonia_md2help () {
         opt_col2 = hardwrap($0, wrap - col1, col1_indent)
         txt = txt "  " opt_col1 "\n" opt_col2 "\n\n"
       } else {
-        txt = txt twocol(opt_col1, $0, col1 - 3, col2, 1, "  ") "\n\n"
+        txt = txt twocol(opt_col1, $0, col1 - 3, col2, " ", "  ") "\n\n"
       }
     }
 
@@ -614,6 +728,29 @@ _junonia_md2help () {
 ### Execution environment setup and management
 ###
 
+# Configure the output level settings. Providing 0 or no argument disables
+# output from echodebug. Providing 1 or any other non-empty value enables
+# output from echodebug. This is accomplished by having echodebug output to
+# file descriptor 3, and redirecting 3 to either /dev/null (disabled) or 2
+# (stderr, enabled).
+junonia_setdebug () {
+  case "$1" in
+    0|'')
+      exec 3>/dev/null
+      ;;
+    1)
+      exec 3>&2
+      ;;
+    *)
+      echoerr "invalid log level: $1"
+      echoerr "defaulting to 1"
+      exec 3>&2
+      ;;
+  esac
+}
+
+# Configure the execution environment by setting global variables for names and
+# paths. Additionally configure debugging and temporary storage.
 junonia_init () {
   if [ -n "$JUNONIA_INIT" ]; then
     # init has already been run
@@ -628,9 +765,6 @@ junonia_init () {
   # Strip the trailing / from TMPDIR if there is one
   export TMPDIR="$(echo "$TMPDIR" | sed 's#/$##')"
 
-  # Determine the script location. Note that this is not POSIX but portable to
-  # many systems with nearly any kind of implementation of readlink.
-
   # Get the absolute path to command used to start this script. JUNONIA_TARGET
   # can be set to a path to avoid the bootstrap process if that path is known
   # in advance, or can be set in advance. Otherwise bootstrapping will be
@@ -643,48 +777,33 @@ junonia_init () {
   fi
 
   readonly JUNONIA_TARGET
+  export   JUNONIA_TARGET
 
   if [ -z "$JUNONIA_PATH" ]; then
     # Get the script path, go there, resolve the full path of symlinks with pwd
     # /some/path/to/the/actual
     # /home/user/code/project/name/bin
-    readonly JUNONIA_PATH="$(cd "$(dirname "$JUNONIA_TARGET")" && pwd -P)"
+    JUNONIA_PATH="$(cd "$(dirname "$JUNONIA_TARGET")" && pwd -P)"
   fi
 
-  # Get the script name by removing the path and .sh suffix:
+  readonly JUNONIA_PATH
+  export   JUNONIA_PATH
+
+  # Get the script name by removing the path and any .sh suffix:
   # script
   readonly JUNONIA_NAME="$(basename "$JUNONIA_TARGET" .sh)"
-  readonly JUNONIA_CAPNAME="$(awk -v n="$JUNONIA_NAME" 'BEGIN{print toupper(n)}')"
+  export   JUNONIA_NAME
+  readonly JUNONIA_CAPNAME="$(awk -v n="$JUNONIA_NAME" \
+                              'BEGIN{print toupper(n)}')"
+  export   JUNONIA_CAPNAME
 
-  # Path to the default config file
-  readonly JUNONIA_CONFIG="$HOME/.$JUNONIA_NAME/${JUNONIA_NAME}rc.sh"
+  # Path to the config file
+  readonly _JUNONIA_CONFIG_DEFAULT="$HOME/.$JUNONIA_NAME/${JUNONIA_NAME}rc.sh"
+  readonly JUNONIA_CONFIG="${JUNONIA_CONFIG:-"$_JUNONIA_CONFIG_DEFAULT"}"
+  export   JUNONIA_CONFIG
 
-  # Determine if the path appears to be a UNIX style prefix by looking for
-  # directories common to prefixes. Note that setting the prefix is just for
-  # convenience so that a script can then check for more directories and set
-  # more of its own convenience variables.
-  JUNONIA_PREFIX="$(dirname "$JUNONIA_PATH")"
-  if [ -d "$JUNONIA_PREFIX/bin"     ] || \
-     [ -d "$JUNONIA_PREFIX/sbin"    ] || \
-     [ -d "$JUNONIA_PREFIX/lib"     ] || \
-     [ -d "$JUNONIA_PREFIX/libexec" ] || \
-     [ -d "$JUNONIA_PREFIX/usr"     ] || \
-     [ -d "$JUNONIA_PREFIX/etc"     ] || \
-     [ -d "$JUNONIA_PREFIX/opt"     ]; then
-    # This is a prefix:
-    # /home/user/code/project/name
-    readonly JUNONIA_PREFIX
-  else
-    # This is *not* a prefix:
-    # /some/path/to/the/actual
-    unset JUNONIA_PREFIX
-  fi
-
-  if [ -n "$JUNONIA_DEBUG" ]; then
-    exec 3>&2
-  else
-    exec 3>/dev/null
-  fi
+  # Configure if debug messages will be printed.
+  junonia_setdebug "$JUNONIA_DEBUG"
 
   # Indicate that init has happened
   readonly JUNONIA_INIT=1
@@ -695,45 +814,97 @@ junonia_init () {
 ### Argument parsing
 ###
 
-_junonia_var_gen () {
-cat << 'EOF'
-  set -a
-  . "$JUNONIA_CONFIG"
-  for v in $(env | awk -F= -v n="$JUNONIA_CAPNAME" '
-                       $0 ~ "^" n "_" {print $1}'); do
-    eval if [ \"'${'$v+set}\" = set ]\; then set=1\; else set=0\; fi
-    if [ "$set" = 1 ] && ! echo "$set_vars" | grep $v; then
-      eval echo export $v=\\\"\"'$'$v\"\\\"
-    fi
+# Use _junonia_get_envvars to examine the current environment using env and
+# extract the names of variables of interest. These are the ones that start
+# with SCRIPT_.  Unfortunately it is IMPOSSIBLE to determine from the output of
+# env what actually are variables just by inspection. It's possible to have a
+# multiline variable whose contents looks like a variable assignment:
+#
+# foo="one=two
+# three=four"
+#
+# So the output of env is:
+#
+# foo=one=two
+# three=four
+#
+# So 'three' looks like a variable but is not one. Therefore eval is used to
+# see if each of the potential names are set [ ${var+set} = set ], meaning they
+# are a variable of interest with a value, even if that value is empty, before
+# adding the name to the list.
+#
+# Eval is used very carefully by only sending it things from known sources.
+# The output of each line of env that is extracted must match the pattern
+# 'SCRIPT_<valid identifier chars>=', and the first field split on = is
+# evaluated. Therefore, what is being 'eval'ed is a potential variable name.
+_junonia_get_envvars () {
+  for v in $(env | awk -F= -v n="$JUNONIA_CAPNAME" \
+             '$0 ~ "^" n "_[_A-Za-z0-9]+=" {print $1}'); do
+    eval if [ \"'${'$v+set}\" = set ]\; then echo $v\; fi
   done
-EOF
 }
 
 # Accept an argument spec and arguments, produce a list of values for each
 # positional argument and option in the spec. If no option was specified, an
 # empty value is generated, such that every specified option has a value, even
 # if that value is empty.
+#
+# $1      The full text of a program argument spec.
+# $2 - $N The program name and arguments from the command line.
 _junonia_set_args () {
-  # $1      The full text of a program argument spec.
-  # $2 - $N The program name and arguments from the command line.
+
+  # The configuration file is in a shell format that can be sourced. In order
+  # to resolve arguments in the expected order (defaults, config file,
+  # environment variables, command line arguments), the config file cannot be
+  # directly sourced into this environment, otherwise it will overwrite
+  # already-set environment variables. This is worked around in the following
+  # manner.
+  if [ -f "$JUNONIA_CONFIG" ]; then
+    set_vars="$(_junonia_get_envvars)"
+
+    # Once the list of known variables that are already set is made, execute a
+    # subshell in a command substitution that outputs the text of some commands
+    # to be eval'd. This works by sourcing the configuration file so that all
+    # variables are exported (-a), again seeing what variables are now set, and
+    # then checking to see if they are in the list of previously set variables.
+    # If they are now set, and weren't already set, return some text that will
+    # be eval'd to set the variable values.
+    #
+    # Eval is again used very carefully. Only identifiers are in the list that
+    # is iterated over. When the value is obtained, the resolution of the
+    # variable v is the variable name, the eval of that gives the *string*
+    # value of the variable, and then the resulting export command string
+    # encloses that value in single quotes. In this way, the value provided in
+    # the configuration file is treated *only as a string*.
+    #
+    # The resulting list of export commands to be eval'd looks like:
+    # export SCRIPT_foo='string value of foo from config file'
+    # export SCRIPT_bar='string value of bar from config file'
+
+    evalcmds="$(
+      set -a
+      . "$JUNONIA_CONFIG"
+      for v in $(_junonia_get_envvars); do
+        if ! echo "$set_vars" | grep $v; then
+          eval echo export $v=\\\'\"'$'$v\"\\\'
+        fi
+      done
+    )"
+
+    eval "$evalcmds"
+  fi
+
   spec="$1"
   shift
 
-  if [ -f "$JUNONIA_CONFIG" ]; then
-    set_vars="$(
-      for v in $(env | awk -F= -v n="$JUNONIA_CAPNAME" '
-                           $0 ~ "^" n "_" {print $1}'); do
-        eval if [ \"'${'$v+set}\" = set ]\; then echo $v\; fi
-      done)"
-    export JUNONIA_CONFIG
-    export JUNONIA_CAPNAME
-    eval "$(env sh -c "$(_junonia_var_gen)")"
-  fi
-
   # Spaces and newlines need to be ignored when passing the determined values
-  # back. The output will be separated by an IFS that will allow this, which
+  # back. The output will be separated by an RS that will allow this, which
   # will be something like the Record Separator (control character 30).
-  awk_prog='function mapbool(b, opt) {
+  awk_prog='
+    # All bools are either 1 or empty, but we accept the text true, 1, and the
+    # presence of the flag (empty value) as true, and the text false and 0 as
+    # false.
+    function mapbool(b, opt) {
     if(tolower(b) == "true" || b == "1" || b == "") {
       return "1"
     } else {
@@ -755,7 +926,7 @@ _junonia_set_args () {
     # options, or multi-options.
     for (i = 2; i < ARGC; i++) {
       if(substr(ARGV[i], 0, 1) == "-") {
-        # Option
+        # This is an option
 
         # How many times this option has been seen
         opt_num[ARGV[i]]++
@@ -790,13 +961,15 @@ _junonia_set_args () {
           i++
         }
       } else {
+        # This is a positional argument
 
-        # Store the positional argument
+        # Store and remove the argument
         pos[i-1] = ARGV[i]
         delete ARGV[i]
 
         # Check for help subcommand
-        if(pos[i-1] == "help") {
+        if(pos[i-1] == "help"   || pos[i-1] == "-h" || pos[i-1] == "-help" ||
+           pos[i-1] == "--help" || pos[i-1] == "/h" || pos[i-1] == "/help") {
 
           # Build the function name to get help on
           func_name = pos[1]
@@ -812,7 +985,7 @@ _junonia_set_args () {
             func_name = func_name "_" ARGV[i+1]
           }
 
-          print func_name "_help" RS args
+          print func_name "_help" JRS args
           e = 0
           exit
         }
@@ -870,7 +1043,7 @@ _junonia_set_args () {
         args = args opts[opt]
         delete opts[opt]
         for(i=2; i<=opt_num[opt]; i++) {
-          args = args "\n" opts[opt i]
+          args = args JUS opts[opt i]
           delete opts[opt i]
         }
 
@@ -914,7 +1087,7 @@ _junonia_set_args () {
         }
       }
     }
-    args = args RS
+    args = args JRS
     next
   }
 
@@ -923,14 +1096,14 @@ _junonia_set_args () {
   # value and increment to the next positional value.
   indented && $0 ~ /^ *[_A-Z0-9]+=*/ {
     if(pos[p] != "") {
-      args = args pos[p] RS
+      args = args pos[p] JRS
       p++
     } else {
       n = index($0, "=")
       if(n) {
-        args = args substr($0, n + 1) RS
+        args = args substr($0, n + 1) JRS
       } else {
-        args = args "" RS
+        args = args "" JRS
       }
     }
     next
@@ -953,25 +1126,28 @@ _junonia_set_args () {
   }
 
   END {
+    # There was an error and we should just exit.
     if(e) {
       exit e
     }
 
+    # There are leftover parameters so something was invalid.
     if(pos[p]) {
       echoerr("unknown parameter: " pos[p])
       exit 1
     }
 
+    # There are leftover options so something was invalid.
     for(i in opts) {
       echoerr("unknown option: " i)
       exit 1
     }
 
-    print func_name RS args
+    # Output everything properly separated for processing.
+    print func_name JRS args
   }'
 
-  echo "$spec" | awk -v name="$JUNONIA_CAPNAME" -v RS="$JUNONIA_RS" \
-                     -v US="$JUNONIA_US"
+  echo "$spec" | awk -v JRS="$JUNONIA_RS" -v JUS="$JUNONIA_US" \
                      "$JUNONIA_AWKS $awk_prog" - "$@"
 }
 
@@ -1116,7 +1292,7 @@ _junonia_run_final () {
   junonia_init
 
   # The argument values in the order defined in the spec.
-  if ! arg_vals="$(_junonia_set_args "$spec" "$(basename "$0")" "$@")"; then
+  if ! arg_vals="$(_junonia_set_args "$spec" "$JUNONIA_NAME" "$@")"; then
     # An error should have been supplied on stderr
     return 1
   fi
@@ -1124,7 +1300,7 @@ _junonia_run_final () {
   # Since we're handling values that can be explicitly blank / empty, and
   # values that have whitespace that might need to be preserved, it's easiest
   # to change the IFS to something other than space/tab/newline.
-  IFS="$_JUNONIA_RS"
+  IFS="$JUNONIA_RS"
 
   # Pass the execution info to a filter function. This allows us to handle the
   # argument values as $@, and use shift to remove common options as specified
@@ -1217,6 +1393,8 @@ _junonia_exec () {
     i=$(( $i + 1 ))
   done
 
+  # If the command hasn't already been sourced or defined somewhere, try to
+  # discover it by checking for files corresponding to the function name.
   i=0
   while ! command -v $func >/dev/null 2>&1; do
     case $i in
@@ -1236,10 +1414,19 @@ _junonia_exec () {
 
     i=$(( $i + 1 ))
 
+    # Found the function file, source it.
     if [ -f "$p" ]; then
       . "$p"
+
+      # Only stop the search if the sourced file actually contained the
+      # function.
+      if command -v $func >/dev/null 2>&1; then
+        break
+      fi
     fi
   done
 
+  # A function file was found and sourced, and the function was found. Execute
+  # the function.
   $func "$@"
 }
