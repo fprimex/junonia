@@ -19,40 +19,6 @@
 #       possibly run a user specified filter function to preprocess arg values
 #       run the specified function with the fully resolved arguments
 
-
-###
-### Globals
-###
-
-# Intended to be user configurable / changed at any time
-
-JUNONIA_WRAP=78
-JUNONIA_COL1=18
-JUNONIA_COL2=60
-
-# Intended to not be changed.
-
-# Information Separator control characters (IS4 - IS1)
-readonly JUNONIA_FS="" # File   Separator (FS / IS4 / dec 28)
-readonly JUNONIA_GS="" # Group  Separator (GS / IS3 / dec 29)
-readonly JUNONIA_RS="" # Record Separator (RS / IS2 / dec 30)
-readonly JUNONIA_US="" # Unit   Separator (US / IS1 / dec 31)
-
-# Variables set by junonia_bootstrap:
-# JUNONIA_TARGET  Absolute path to the script
-# JUNONIA_PATH    Absolute path to the directory containing the script
-
-# Variables set by  junonia_init:
-# JUNONIA_NAME    Name of the script after resolving symlinks and removing .sh
-# JUNONIA_CAPNAME Name in all caps
-# JUNONIA_CONFIG  Path to script rc file
-# JUNONIA_INIT    Init guard to prevent attempted re-inits
-# TMPDIR          Set if unset, consistently formatted with ending '/' removed
-
-# This variable is used / checked, but is not set by junonia itself.
-# JUNONIA_DEBUG   Whether or not to show output on stderr from echodebug (FD3)
-
-
 ###
 ### Copy of the bootstrap function
 ###
@@ -481,6 +447,7 @@ junonia_twocol () {
 # n-1 gutter strings and prefixed by a string.  Since Bourne shell has no
 # arrays, use FS (JUNONIA_FS) to separate the array entries to go to awk.
 junonia_ncol () {
+  junonia_init
   awk_prog='BEGIN {
     n = split(t, ta)
     split(c, ca)
@@ -863,6 +830,8 @@ _junonia_md2help () {
     return 1
   fi
 
+  junonia_init
+
   cat | awk -v wrap="$JUNONIA_WRAP" -v col1="$JUNONIA_COL1" \
             -v col2="$JUNONIA_COL2" -v cmd="$1" \
             "$JUNONIA_AWKS $awk_prog"
@@ -897,10 +866,41 @@ junonia_setdebug () {
 # Configure the execution environment by setting global variables for names and
 # paths. Additionally configure debugging and temporary storage.
 junonia_init () {
+  # Variables set by junonia_bootstrap:
+  # JUNONIA_TARGET  Absolute path to the script
+  # JUNONIA_PATH    Absolute path to the directory containing the script
+
+  # Variables set by  junonia_init:
+  # JUNONIA_NAME    Name of the script after resolving symlinks and removing .sh
+  # JUNONIA_CAPNAME Name in all caps
+  # JUNONIA_CONFIG  Path to script rc file
+  # JUNONIA_INIT    Init guard to prevent attempted re-inits
+  # JUNONIA_FS      Information separators
+  # JUNONIA_GS
+  # JUNONIA_RS
+  # JUNONIA_US
+  # JUNONIA_WRAP    Width of two column output (option help listings)
+  # JUNONIA_COL1    Width of column one
+  # JUNONIA_COL2    Width of column two
+  # TMPDIR          Set if unset, consistently formatted with ending '/' removed
+
+  # This variable is used / checked, but is not set by junonia itself.
+  # JUNONIA_DEBUG   Whether or not to show output on stderr from echodebug (FD3)
+
   if [ -n "$JUNONIA_INIT" ]; then
     # init has already been run
     return
   fi
+
+  JUNONIA_WRAP=78
+  JUNONIA_COL1=18
+  JUNONIA_COL2=60
+
+  # Information Separator control characters (IS4 - IS1)
+  readonly JUNONIA_FS="" # File   Separator (FS / IS4 / dec 28)
+  readonly JUNONIA_GS="" # Group  Separator (GS / IS3 / dec 29)
+  readonly JUNONIA_RS="" # Record Separator (RS / IS2 / dec 30)
+  readonly JUNONIA_US="" # Unit   Separator (US / IS1 / dec 31)
 
   # Use TMPDIR if it is set. If not, set it to /tmp
   if [ -z "$TMPDIR" ]; then
@@ -961,7 +961,7 @@ junonia_init () {
 
 # Use _junonia_get_envvars to examine the current environment using env and
 # extract the names of variables of interest. These are the ones that start
-# with SCRIPT_.  Unfortunately it is IMPOSSIBLE to determine from the output of
+# with SCRIPT_. Unfortunately it is IMPOSSIBLE to determine from the output of
 # env what actually are variables just by inspection. It's possible to have a
 # multiline variable whose contents looks like a variable assignment:
 #
@@ -983,6 +983,8 @@ junonia_init () {
 # 'SCRIPT_<valid identifier chars>=', and the first field split on = is
 # evaluated. Therefore, what is being 'eval'ed is a potential variable name.
 _junonia_get_envvars () {
+  junonia_init
+
   for v in $(env | awk -F= -v n="$JUNONIA_CAPNAME" \
              '$0 ~ "^" n "_[_A-Za-z0-9]+=" {print $1}'); do
     eval if [ \"'${'$v+set}\" = set ]\; then echo $v\; fi
@@ -997,6 +999,17 @@ _junonia_get_envvars () {
 # $1      The full text of a program argument spec.
 # $2 - $N The program name and arguments from the command line.
 _junonia_set_args () {
+  junonia_init
+
+  # NOTE THAT THE CONFIG FILE IS *MEANT* TO BE AN RC FILE WHERE YOU CAN SET
+  # ARGUMENT VARS AND RUN COMMANDS FOR SETUP TYPE THINGS. ARBITRARY COMMANDS
+  # CAN BE EXECUTED. THIS IS BY DESIGN. THE SECURITY MODEL OF SHELL SCRIPTING
+  # IS "IT CAN RUN WHATEVER THE CURRENT USER CAN."
+
+  # Non-script related variables (foo=bar) will not be available to commands
+  # because the sourcing occurs in a command substitution subshell. The script
+  # related values are available only because they are fully resolved and
+  # returned.
 
   # The configuration file is in a shell format that can be sourced. In order
   # to resolve arguments in the expected order (defaults, config file,
@@ -1005,37 +1018,42 @@ _junonia_set_args () {
   # already-set environment variables. This is worked around in the following
   # manner.
   if [ -f "$JUNONIA_CONFIG" ]; then
+
+    # Make a list of script related variables that are set.
     set_vars="$(_junonia_get_envvars)"
 
     # Once the list of known variables that are already set is made, execute a
-    # subshell in a command substitution that outputs the text of some commands
-    # to be eval'd. This works by sourcing the configuration file so that all
-    # variables are exported (-a), again seeing what variables are now set, and
-    # then checking to see if they are in the list of previously set variables.
-    # If they are now set, and weren't already set, return some text that will
-    # be eval'd to set the variable values.
-    #
+    # subshell in a command substitution that outputs the text of some export
+    # commands to re-set the values of the existing variables.
+
     # Eval is again used very carefully. Only identifiers are in the list that
     # is iterated over. When the value is obtained, the resolution of the
     # variable v is the variable name, the eval of that gives the *string*
     # value of the variable, and then the resulting export command string
     # encloses that value in single quotes. In this way, the value provided in
-    # the configuration file is treated *only as a string*.
-    #
+    # the configuration file is treated *only as a string*. We're not worried
+    # so much about security as incorrectly, prematurely evaluating an
+    # expression. That is, the value should be preserved as-is.
+
     # The resulting list of export commands to be eval'd looks like:
-    # export SCRIPT_foo='string value of foo from config file'
-    # export SCRIPT_bar='string value of bar from config file'
+    # export SCRIPT_foo='string value of foo from env var'
+    # export SCRIPT_bar='string value of bar from env var'
 
     evalcmds="$(
-      set -a
-      . "$JUNONIA_CONFIG"
       for v in $(_junonia_get_envvars); do
-        if ! echo "$set_vars" | grep $v; then
-          eval echo export $v=\\\'\"'$'$v\"\\\'
-        fi
+        eval echo export $v=\\\'\"'$'$v\"\\\'
       done
     )"
 
+    # Source the config file, exporting all of the variables. Existing
+    # variables may get overwritten. This is where any commands in the config
+    # file will be executed.
+    set -a
+    . "$JUNONIA_CONFIG"
+    set +a
+
+    # Re-set any previously set variables so that environment variables take
+    # precedence over configuration file values.
     eval "$evalcmds"
   fi
 
