@@ -440,7 +440,7 @@ $junonia_awk_randomish_int
 # Shell version of junonia_awk_randomish_int. See its documentation for VERY
 # important information on appropriate usage. With no argument provided it uses
 # the default in the awk function.
-randomish_int () {
+junonia_randomish_int () {
   awk_prog='BEGIN { printf "%s", randomish_int(s, n) }'
 
   # Provide a seed to awk's srand that is the process ID of a new sh process.
@@ -450,6 +450,52 @@ randomish_int () {
     return 1
   fi
 }
+
+# Shell entrypoint for hardwrapping a line.
+junonia_hardwrap () {
+  awk_prog='BEGIN { printf "%s", hardwrap(s, w, p, f) }'
+  if ! awk -v s="$1" -v w="$2" -v p="$3" -v f="$4" \
+           "$JUNONIA_AWKS $awk_prog"; then
+    echoerr "failed to hardwrap (width:$2, prefix:$3, float:$4):"
+    echoerr "$1"
+    return 1
+  fi
+}
+
+# Shell entrypoint for printing two listings of text in 2 columns, separated by
+# a gutter string and prefixed by a string. 
+junonia_twocol () {
+  awk_prog='BEGIN { printf "%s", twocol(t1, t2, c1, c2, g, p, f) }'
+  if ! awk -v t1="$1" -v t2="$2" -v c1="$3" -v c2="$4" \
+           -v  g="$5" -v  p="$6" -v  f="$7" \
+           "$JUNONIA_AWKS $awk_prog"; then
+    echoerr "failed to format in two columns with parameters:"
+    echoerr "col1=$3 col2=$4 gutter=$5 prefix=$6 float=$7"
+    echoerr "text1: $1"
+    echoerr "text2: $2"
+    return 1
+  fi
+}
+
+# Shell entrypoint for printing n listings of text in n columns, separated by
+# n-1 gutter strings and prefixed by a string.  Since Bourne shell has no
+# arrays, use FS (JUNONIA_FS) to separate the array entries to go to awk.
+junonia_ncol () {
+  awk_prog='BEGIN {
+    n = split(t, ta)
+    split(c, ca)
+    split(g, ga)
+    FS=" "
+    printf "%s", ncol(n, ta, ca, ga, p)
+  }'
+  if ! awk -F "$JUNONIA_FS" \
+           -v t="$1" -v c="$2" -v g="$3" -v p="$4" \
+           "$JUNONIA_AWKS $awk_prog"; then
+    echoerr "failed to format text into multiple columns"
+    return 1
+  fi
+}
+
 
 
 ###
