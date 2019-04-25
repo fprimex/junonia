@@ -16,7 +16,7 @@
 #                       spec defaults, config file, env vars, and cli args
 #     _junonia_exec to receive all arg values and run the function
 #       possibly run help and exit
-#       possibly run a user filter function to preprocess args
+#       possibly run a user specified filter function to preprocess arg values
 #       run the specified function with the fully resolved arguments
 
 
@@ -154,27 +154,27 @@ echodebug () { echodebug_raw "[DEBUG] $@"; }
 ###
 
 # Convenience functions for error and debug output
-_awk_echoerr='function echoerr(msg) {
+junonia_awk_echoerr='function echoerr(msg) {
   printf "[ERROR] %s\n", msg >"/dev/stderr"
 }'
 
-_awk_echoerr_raw='function echoerr_raw(msg) {
+junonia_awk_echoerr_raw='function echoerr_raw(msg) {
   printf "%s\n", msg >"/dev/stderr"
 }'
 
-_awk_echodebug='function echodebug(msg) {
+junonia_awk_echodebug='function echodebug(msg) {
   if(JUNONIA_DEBUG) {
     echoerr_raw("[DEBUG] " msg)
   }
 }'
 
-_awk_echodebug_raw='function echodebug_raw(msg) {
+junonia_awk_echodebug_raw='function echodebug_raw(msg) {
   if(JUNONIA_DEBUG) {
     echoerr_raw(msg)
   }
 }'
 
-_awk_hardwrap='
+junonia_awk_hardwrap_line='
   # Wrap a long line to a specified width and optionally add a prefix / indent.
   #
   # Arguments
@@ -182,53 +182,75 @@ _awk_hardwrap='
   # line    Text to wrap
   # width   Line width to wrap to
   # pre     Prefix string such as an indent
+  # float   Float text without spaces longer than width instead of breaking it
   #
   # Locals
   # ------
   # str     Portion of the line being wrapped
   # n       Index of the next space in the line
+  # start   Index of the start of the next chunk
   # wrapped Final wrapped result
-  function hardwrap(line, width, pre,
+  function hardwrap_line(line, width, pre, float,
                     str, n, wrapped) {
 
     # The start of the line will be removed as it is wrapped, so continue
     # producing wrapped lines as long as line is longer than the wrap width.
     while(length(line) > width) {
 
-      # Need to deal with lines that have no spaces and cannot be wrapped.
+      # Position of the next space.
       n = index(line, " ")
-      if(n == 0) {
+
+      # If floating long lines, deal with lines that have no spaces (space
+      # position 0) by not touching them.
+      if(n == 0 && float) {
         break
       }
 
-      if(n > width) {
-        # The next space is beyond the wrap, so wrap on that space.
+      if(n > width && float) {
+        # If floating long lines, and this line is long (space beyond the
+        # width), wrap at that space and continue, producing a line that is
+        # wider than the width.
         str = substr(line, 1, n - 1)
       } else {
-        # The next space is within the wrap width, so take a chunk of the line
-        # that is the length of the wrap width.
+        # Either:
+        #   Not floating, so break in the middle of long lines
+        # OR
+        #   There is a space within in the wrap width.
+
+        # Take a chunk that is the width.
         str = substr(line, 1, width)
+
+        # Remove everything at the end of the string that is the last space
+        # followed by not a space.
+        sub(/ [^ ]*$/, "", str)
+
+        # Strip leading space from the chunk so it will be aligned.
+        sub(/^ /, "", str)
+
+        if(n == 0 || n > width) {
+          # The space is beyond the wrap width or there is no space, so this is
+          # is a break in the middle of a word.
+          start = width + 1
+        } else {
+          # The space is within the wrap width, so this is a break on a space.
+          # Note that this does not take into account multiple spaces between
+          # words. On that, we assume that if you have more than one space that
+          # they must be significant so your weird formatting is retained.
+          start = length(str) + 2
+        }
       }
-
-      # Remove everything at the end of the string that is the last space
-      # followed by not a space.
-      sub(/ [^ ]*$/, "", str)
-
-      # Strip leading space from the chunk so it will be aligned.
-      sub(/^ /, "", str)
 
       # Add this wrapped line to the hardwrapped result.
       wrapped = wrapped pre str "\n"
 
       # Removed the portion that was just wrapped from the line for continued
       # processing.
-      line = substr(line, length(str) + 2, length(line))
+      line = substr(line, start, length(line))
     }
 
-    # There probably is a bit of text that is leftover. It needs to be aligned
-    # and added to the wrapped result.
+    # There probably is a bit of text that is leftover and needs to be added to
+    # the wrapped result.
     if(line) {
-      sub(/^ */, "", line)
       wrapped = wrapped pre line "\n"
     }
 
@@ -237,7 +259,21 @@ _awk_hardwrap='
   }
 '
 
-_awk_twocol='
+junonia_awk_hardwrap='
+  function hardwrap(lines, width, pre, float,
+                    linesa, str, n, i, wrapped) {
+    n = split(lines, linea, "\n")
+    for(i=1; i<=n; i++) {
+      wrapped = wrapped hardwrap_line(linea[i], width, pre, float) "\n"
+    }
+
+    # Send back the hardwrapped string with the final newline removed.
+    return substr(wrapped, 1, length(wrapped) - 1)
+  }
+'
+
+
+junonia_awk_twocol='
   # Given two strings and specifications for two columns, format the text side
   # by side in two columns.
   #
@@ -253,36 +289,97 @@ _awk_twocol='
   # Locals
   # ------
   # fmt       Print format for each wrapped and combined line
+  # t1        All hardwrapped lines from text1
+  # t2        All hardwrapped lines from text2
   # text1a    Array of lines in text1
   # text2a    Array of lines in text2
   # i         Iterator variable
+  # n         Number of lines being processed
   # formatted Final result
-  function twocol(text1, text2, col1, col2, gutter, pre,
-                  fmt, text1a, text2a, i, formatted) {
+  function twocol(text1, text2, col1, col2, gutter, pre, float,
+                  fmt, t1, t2, text1a, text2a, i, j, n, m, formatted) {
+
     # Wrap each line to the desired column width.
-    text1 = hardwrap(text1, col1)
-    text2 = hardwrap(text2, col2)
+    #n = split(text1, text1a, "\n")
+    #for(i=1; i<=n; i++) {
+    #  t1 = t1 hardwrap(text1a[i], col1, pre, float) "\n"
+    #}
+    #t1 = substr(t1, 1, length(t1) - 1)
+    t1 = hardwrap(text1, col1, pre, float)
+
+    #n = split(text2, text2a, "\n")
+    #for(i=1; i<=n; i++) {
+    #  t2 = t2 hardwrap(text2a[i], col2, "", float) "\n"
+    #}
+    #t2 = substr(t2, 1, length(t2) - 1)
+    t2 = hardwrap(text2, col2, "", float)
 
     # Assemble the print format. e.g.
     # Prefix 2 spaces, col1 20, gutter 1 space, col2 40
     # "  %-20s %-40s"
-    fmt = pre "%-" col1 "s" gutter "%-" col2 "s"
+    fmt = "%-" col1 + length(pre) "s" gutter "%-" col2 "s"
 
     # Put each line of each hardwrapped column in arrays
-    split(text1, text1a, "\n")
-    split(text2, text2a, "\n")
+    n = split(t1, text1a, "\n")
+    m = split(t2, text2a, "\n")
 
     # Iterate over the arrays and put the lines next to each other using the
     # assembled format.
     i = 1
-    while(text1a[i] || text2a[i]) {
-      formatted = formatted sprintf(fmt, text1a[i], text2a[i]) "\n"
-      i++
+    j = 1
+    while(i<=n || j<=m) {
+      if(length(text1a[i]) > col1 + length(pre)) {
+        formatted = formatted text1a[i] "\n"
+        i++
+      } else {
+        formatted = formatted sprintf(fmt, text1a[i], text2a[j]) "\n"
+        i++
+        j++
+      }
     }
 
     # Send back the final, two column formatted text with the final newline
     # removed.
     return substr(formatted, 1, length(formatted) - 1)
+  }
+'
+
+junonia_awk_ncol='
+  # Given n strings and specifications for n columns, format the text side
+  # by side in n columns.
+  #
+  # Arguments
+  # ---------
+  # n         Number of columns
+  # texta     Array of text to go into the columns
+  # cola      Array of column widths
+  # guttera   Array of text to go between the columns
+  # pre       Text to go in front of the complete text, like an indent
+  #
+  # Locals
+  # ------
+  # i         Iterator variable
+  # formatted Final result
+  function ncol(n, texts, cols, gutters, pre,
+                ctotal, i, formatted) {
+    if(n < 2) {
+      echoerr("ncol requires 2 or more columns, received " n)
+      exit 1
+    }
+
+    formatted = twocol(texts[1], texts[2], cols[1], cols[2], gutters[1])
+    ctotal = cols[1] + cols[2] + length(gutters[1])
+
+    if(n > 2) {
+      for(i=3; i<n; i++) {
+        formatted = twocol(formatted, texts[i], ctotal, cols[i], gutters[i-1])
+        ctotal += cols[i] + length(gutters[i-1])
+      }
+
+      formatted = twocol(formatted, texts[n], ctotal, cols[n], gutters[n-1])
+    }
+
+    return formatted
   }
 '
 
@@ -294,7 +391,7 @@ _awk_twocol='
 # The seed HAS to be sufficient in order for this to work. Sending the current
 # time, for example, is not usually sufficient. See the shell wrapper for an
 # example of a suitable seed.
-_awk_randomish_int='
+junonia_awk_randomish_int='
   function randomish_int(s, n) {
     # A seed has to be given
     if(! s) {
@@ -324,13 +421,15 @@ _awk_randomish_int='
 '
 
 readonly JUNONIA_AWKS="
-$_awk_hardwrap
-$_awk_twocol
-$_awk_echoerr
-$_awk_echoerr_raw
-$_awk_echodebug
-$_awk_echodebug_raw
-$_awk_randomish_int
+$junonia_awk_hardwrap_line
+$junonia_awk_hardwrap
+$junonia_awk_twocol
+$junonia_awk_ncol
+$junonia_awk_echoerr
+$junonia_awk_echoerr_raw
+$junonia_awk_echodebug
+$junonia_awk_echodebug_raw
+$junonia_awk_randomish_int
 "
 
 
@@ -338,15 +437,15 @@ $_awk_randomish_int
 ### Shell utility functions
 ###
 
-# Shell version of _awk_randomish_int. See its documentation for VERY important
-# information on appropriate usage. With no argument provided it uses the
-# default in the awk function.
+# Shell version of junonia_awk_randomish_int. See its documentation for VERY
+# important information on appropriate usage. With no argument provided it uses
+# the default in the awk function.
 randomish_int () {
   awk_prog='BEGIN { printf "%s", randomish_int(s, n) }'
 
   # Provide a seed to awk's srand that is the process ID of a new sh process.
   if ! awk -v s="$(/bin/sh -c 'echo $$')" \
-           -v n="$1" "$_awk_randomish_int $awk_prog"; then
+           -v n="$1" "$junonia_awk_randomish_int $awk_prog"; then
     echoerr 'unable to generate random int'
     return 1
   fi
@@ -694,7 +793,7 @@ _junonia_md2help () {
     #* `-option VAL`
     #* `-option VAL1 [-option1 VAL2 ...]`
     options && /^\* `-[-A-Za-z0-9]+/ {
-      gsub(/^* |`/, "")
+      gsub(/^\* |`/, "")
       opt_col1 = $0
     }
 
