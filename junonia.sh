@@ -19,6 +19,7 @@
 #       possibly run a user specified filter function to preprocess arg values
 #       run the specified function with the fully resolved arguments
 
+
 ###
 ### Copy of the bootstrap function
 ###
@@ -36,7 +37,7 @@
 
 # the following code could be used in script:
 
-#   # copied from junonia.sh
+#   # copied from junonia.sh or junonia_bootstrap.sh
 #   junonia_bootstrap () {
 #     ...
 #   }
@@ -177,6 +178,7 @@ junonia_awk_hardwrap_line='
         # width), wrap at that space and continue, producing a line that is
         # wider than the width.
         str = substr(line, 1, n - 1)
+        start = n
       } else {
         # Either:
         #   Not floating, so break in the middle of long lines
@@ -245,40 +247,31 @@ junonia_awk_twocol='
   #
   # Arguments
   # ---------
-  # text1     Text to go into the first column
-  # text2     Text to go into the second column
+  # t1        Text to go into the first column
+  # t2        Text to go into the second column
   # col1      Width of column one
   # col2      Width of column two
   # gutter    Text to go in between the columns
   # pre       Text to go in front of the complete text, like an indent
+  # f1        If unbroken lines of t1 longer than col1 should be left unbroken
+  # f2        If unbroken lines of t2 longer than col2 should be left unbroken
   #
   # Locals
   # ------
   # fmt       Print format for each wrapped and combined line
-  # t1        All hardwrapped lines from text1
-  # t2        All hardwrapped lines from text2
-  # text1a    Array of lines in text1
-  # text2a    Array of lines in text2
+  # t1a       Array of lines in text1
+  # t2a       Array of lines in text2
   # i         Iterator variable
-  # n         Number of lines being processed
+  # j         Iterator variable
+  # n         Number of lines being processed for t1
+  # m         Number of lines being processed for t2
   # formatted Final result
-  function twocol(text1, text2, col1, col2, gutter, pre, float,
-                  fmt, t1, t2, text1a, text2a, i, j, n, m, formatted) {
+  function twocol(t1, t2, col1, col2, gutter, pre, f1, f2,
+                  fmt, t1a, t2a, i, j, n, m, formatted) {
 
     # Wrap each line to the desired column width.
-    #n = split(text1, text1a, "\n")
-    #for(i=1; i<=n; i++) {
-    #  t1 = t1 hardwrap(text1a[i], col1, pre, float) "\n"
-    #}
-    #t1 = substr(t1, 1, length(t1) - 1)
-    t1 = hardwrap(text1, col1, pre, float)
-
-    #n = split(text2, text2a, "\n")
-    #for(i=1; i<=n; i++) {
-    #  t2 = t2 hardwrap(text2a[i], col2, "", float) "\n"
-    #}
-    #t2 = substr(t2, 1, length(t2) - 1)
-    t2 = hardwrap(text2, col2, "", float)
+    t1 = hardwrap(t1, col1, pre, f1)
+    t2 = hardwrap(t2, col2, "", f2)
 
     # Assemble the print format. e.g.
     # Prefix 2 spaces, col1 20, gutter 1 space, col2 40
@@ -286,19 +279,19 @@ junonia_awk_twocol='
     fmt = "%-" col1 + length(pre) "s" gutter "%-" col2 "s"
 
     # Put each line of each hardwrapped column in arrays
-    n = split(t1, text1a, "\n")
-    m = split(t2, text2a, "\n")
+    n = split(t1, t1a, "\n")
+    m = split(t2, t2a, "\n")
 
     # Iterate over the arrays and put the lines next to each other using the
     # assembled format.
     i = 1
     j = 1
     while(i<=n || j<=m) {
-      if(length(text1a[i]) > col1 + length(pre)) {
-        formatted = formatted text1a[i] "\n"
+      if(length(t1a[i]) > col1 + length(pre)) {
+        formatted = formatted t1a[i] "\n"
         i++
       } else {
-        formatted = formatted sprintf(fmt, text1a[i], text2a[j]) "\n"
+        formatted = formatted sprintf(fmt, t1a[i], t2a[j]) "\n"
         i++
         j++
       }
@@ -317,33 +310,36 @@ junonia_awk_ncol='
   # Arguments
   # ---------
   # n         Number of columns
-  # texta     Array of text to go into the columns
-  # cola      Array of column widths
-  # guttera   Array of text to go between the columns
+  # texts     Array of text to go into the columns
+  # cols      Array of column widths
+  # gutters   Array of text to go between the columns
   # pre       Text to go in front of the complete text, like an indent
+  # floats    If unbroken lines longer than cols should be left unbroken
   #
   # Locals
   # ------
   # i         Iterator variable
   # formatted Final result
-  function ncol(n, texts, cols, gutters, pre,
+  function ncol(n, texts, cols, gutters, pre, floats,
                 ctotal, i, formatted) {
     if(n < 2) {
       echoerr("ncol requires 2 or more columns, received " n)
       exit 1
     }
 
-    formatted = twocol(texts[1], texts[2], cols[1], cols[2], gutters[1])
-    ctotal = cols[1] + cols[2] + length(gutters[1])
+    # Process all columns except the last one.
+    formatted = texts[1]
+    ctotal = cols[1]
 
-    if(n > 2) {
-      for(i=3; i<n; i++) {
-        formatted = twocol(formatted, texts[i], ctotal, cols[i], gutters[i-1])
-        ctotal += cols[i] + length(gutters[i-1])
-      }
-
-      formatted = twocol(formatted, texts[n], ctotal, cols[n], gutters[n-1])
+    for(i=1; i<n-1; i++) {
+      formatted = twocol(formatted, texts[i+1], ctotal, cols[i+1], gutters[i],
+                         "", floats[i], floats[i+1])
+      ctotal += cols[i+1] + length(gutters[i])
     }
+
+    # Process the last column and add the prefix to the entire result.
+    formatted = twocol(formatted, texts[n], ctotal, cols[n], gutters[n-1],
+                       pre, floats[n-1], floats[n])
 
     return formatted
   }
@@ -431,12 +427,12 @@ junonia_hardwrap () {
 # Shell entrypoint for printing two listings of text in 2 columns, separated by
 # a gutter string and prefixed by a string. 
 junonia_twocol () {
-  awk_prog='BEGIN { printf "%s", twocol(t1, t2, c1, c2, g, p, f) }'
+  awk_prog='BEGIN { printf "%s", twocol(t1, t2, c1, c2, g, p, f1, f2) }'
   if ! awk -v t1="$1" -v t2="$2" -v c1="$3" -v c2="$4" \
-           -v  g="$5" -v  p="$6" -v  f="$7" \
+           -v  g="$5" -v  p="$6" -v  f1="$7" -v f2="$8"\
            "$JUNONIA_AWKS $awk_prog"; then
     echoerr "failed to format in two columns with parameters:"
-    echoerr "col1=$3 col2=$4 gutter=$5 prefix=$6 float=$7"
+    echoerr "col1=$3 col2=$4 gutter=$5 prefix=$6 float1=$7 float2=$8"
     echoerr "text1: $1"
     echoerr "text2: $2"
     return 1
@@ -452,17 +448,17 @@ junonia_ncol () {
     n = split(t, ta)
     split(c, ca)
     split(g, ga)
+    split(f, fa)
     FS=" "
-    printf "%s", ncol(n, ta, ca, ga, p)
+    printf "%s", ncol(n, ta, ca, ga, p, fa)
   }'
   if ! awk -F "$JUNONIA_FS" \
-           -v t="$1" -v c="$2" -v g="$3" -v p="$4" \
+           -v t="$1" -v c="$2" -v g="$3" -v p="$4" -v f="$5" \
            "$JUNONIA_AWKS $awk_prog"; then
     echoerr "failed to format text into multiple columns"
     return 1
   fi
 }
-
 
 
 ###
@@ -1593,3 +1589,5 @@ _junonia_exec () {
   # the function.
   $func "$@"
 }
+
+junonia_init
