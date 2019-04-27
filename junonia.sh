@@ -474,108 +474,112 @@ junonia_ncol () {
 # Where VAR is NAME=VALUE to set the value and NAME= or NAME to remove the
 # value.
 junonia_update_config () {
-    if [ -f "$1" ]; then
-        echodebug "[DEBUG] Modifying $1"
-    else
-        echodebug "[DEBUG] Creating $1"
-        if ! touch "$1"; then
-            echoerr "ERROR: Could not create $1"
-            return 1
-        fi
+  if [ -f "$1" ]; then
+    echodebug "Modifying $1"
+  else
+    echodebug "Creating $1"
+    if ! touch "$1"; then
+      echoerr "Could not create $1"
+      return 1
     fi
+  fi
 
-    if ! config="$(awk '# Generate the config from arg input and existing file.
+  if ! config="$(awk -v JUS="$JUNONIA_US" '
+    # Generate the config from arg input and existing file.
 
-        # Given a potential var=value line, separate them, set VARNAME
-        # and VARVALUE.
-        function splitvar(var) {
-            # Find = or the end
-            eq = index(var, "=")
-            if(eq == 0) {
-                eq = length(var + 1)
-            }
+    # Given a potential var=value line, separate them, set VARNAME
+    # and VARVALUE.
+    function splitvar(var) {
+      # Find = or the end
+      eq = index(var, "=")
+      if(eq == 0) {
+        eq = length(var + 1)
+      }
 
-            # Extract the name and value
-            VARNAME = substr(var, 1, eq - 1)
-            VARVALUE = substr(var, eq + 1)
+      # Extract the name and value
+      VARNAME = substr(var, 1, eq - 1)
+      VARVALUE = substr(var, eq + 1)
 
-            # Enclose the value in quotes if not already
-            if(VARVALUE && VARVALUE !~ /^".*"$/) {
-                VARVALUE = "\"" VARVALUE "\""
-            }
+      # The value may be multiple distinct lines
+      gsub(JUS, "\n", VARVALUE)
 
-            # Error if VARNAME is not a valid shell variable name
-            if(VARNAME !~ varname_re) {
-                VARNAME=""
-                VARVALUE=""
-                return 1
-            }
-            return 0
-        }
+      # Enclose the value in quotes if not already
+      if(VARVALUE && VARVALUE !~ /^".*"$/) {
+        VARVALUE = "\"" VARVALUE "\""
+      }
 
-        BEGIN {
-            # Matches valid shell variable names
-            varname_re = "[A-Za-z_][A-Za-z0-9_]*"
-
-            # Arg1 is the config file. The rest are config entries to process,
-            # so make them into an array and remove them from the arg vector.
-            for(i=2; i<ARGC; i++) {
-                if(splitvar(ARGV[i]) == 0) {
-                    config[VARNAME] = VARVALUE
-                    ARGV[i] = ""
-                    vars++
-                }
-            }
-
-            # No variables were given to process.
-            if(!vars) {
-                exit 1
-            }
-
-            ARGC = 2
-        }
-
-        # Start processing the config file.
-
-        # This line is a variable we were given to modify.
-        $0 ~ "^" varname_re && splitvar($0) == 0 && config[VARNAME] {
-            # If no value was supplied, skip it, effectively removing it from
-            # the config file.
-            if(! config[VARNAME]) {
-                next
-            }
-
-            # There is a value, so write that and remove it from the array
-            # since it was processed.
-            print VARNAME "=" config[VARNAME]
-            delete config[VARNAME]
-            next
-        }
-
-        # Preserve unmodified lines as-is.
-        { print }
-
-        END {
-            # If there are still config entries that means we were given
-            # variables to process that were not already in the config file.
-            # Those should then be added at the end.
-            for(c in config) {
-                if(config[c]) {
-                    print c "=" config[c]
-                }
-            }
-        }
-    ' "$@")"; then
-        echoerr "Error processing configuration"
-        echoerr "$config"
+      # Error if VARNAME is not a valid shell variable name
+      if(VARNAME !~ varname_re) {
+        VARNAME=""
+        VARVALUE=""
         return 1
-    fi
+      }
+      return 0
+    }
 
-    if ! echo "$config" | tee "$1"; then
-        echoerr "Error writing configuration to file $1"
-        echoerr "$config"
-        return 1
-    fi
+    BEGIN {
+      # Matches valid shell variable names
+      varname_re = "[A-Za-z_][A-Za-z0-9_]*"
+
+      # Arg1 is the config file. The rest are config entries to process,
+      # so make them into an array and remove them from the arg vector.
+      for(i=2; i<ARGC; i++) {
+        if(splitvar(ARGV[i]) == 0) {
+          config[VARNAME] = VARVALUE
+          ARGV[i] = ""
+          vars++
+        }
+      }
+
+      # No variables were given to process.
+      if(!vars) {
+        exit 1
+      }
+
+      ARGC = 2
+    }
+
+    # Start processing the config file.
+
+    # This line is a variable we were given to modify.
+    $0 ~ "^" varname_re && splitvar($0) == 0 && config[VARNAME] {
+      # If no value was supplied, skip it, effectively removing it from
+      # the config file.
+      if(! config[VARNAME]) {
+        next
+      }
+
+      # There is a value, so write that and remove it from the array
+      # since it was processed.
+      print VARNAME "=" config[VARNAME]
+      delete config[VARNAME]
+      next
+    }
+
+    # Preserve unmodified lines as-is.
+    { print }
+
+    END {
+      # If there are still config entries that means we were given
+      # variables to process that were not already in the config file.
+      # Those should then be added at the end.
+      for(c in config) {
+        if(config[c]) {
+          print c "=" config[c]
+        }
+      }
+    }
+  ' "$@")"; then
+    echoerr "Error processing configuration"
+    echoerr "$config"
+    return 1
+  fi
+
+  if ! echo "$config" | tee "$1"; then
+    echoerr "Error writing configuration to file $1"
+    echoerr "$config"
+    return 1
+  fi
 }
 
 
@@ -1072,6 +1076,7 @@ _junonia_set_args () {
       } else {
         msg = "option " opt " argument must be omitted (true) or one of:"
         msg = msg "\ntrue false 1 0"
+        msg = msg "\ngot: " b
         echoerr(msg)
         e = 1
         exit 1
@@ -1121,6 +1126,13 @@ _junonia_set_args () {
         }
       } else {
         # This is a positional argument
+        for(i in opts) {
+          echoerr("all positional parameters must precede all options")
+          e = 1
+          exit
+        }
+
+        p++
 
         # Store and remove the argument
         pos[i-1] = ARGV[i]
@@ -1168,6 +1180,15 @@ _junonia_set_args () {
     # on the given arguments.
     func_name = ""
 
+    # Check for the config option, to show or edit the rc config file
+    if(pos[2] == "config") {
+      for(i=2; i<=p; i++) {
+        pos[i] = pos[i+1]
+      }
+
+      config = 1
+    }
+
     # Both subcommands and positional arguments are stored in the same
     # positional array. As each is resolved p is incremented to advance through
     # the positional array. Once all subcommands are resolved, helping to build
@@ -1190,59 +1211,79 @@ _junonia_set_args () {
   indented && substr($1, 0, 1) == "-" {
     split($1, a, "=")
     opt = a[1]
-    def = a[2]
+
+    if(config) {
+      booldef = ""
+    } else {
+      booldef = a[2]
+    }
 
     if(opt in opts) {
       # This option from the spec is one we have in the program arguments.
+
+      if(config) {
+        preconfig = opt
+        sub(/^-*/, "", preconfig)
+        gsub(/-/, "_", preconfig)
+        preconfig = envname "_" preconfig "=\""
+        postconfig = "\""
+      } else {
+        preconfig = ""
+        postconfig = ""
+      }
 
       if($2 ~ /\[[A-Za-z0-9]/) {
         # The option can be specified multiple times (brackets around metavar
         # in the spec), so this option may have received multiple values.
 
-        args = args opts[opt]
+        args = args preconfig opts[opt]
         delete opts[opt]
         for(i=2; i<=opt_num[opt]; i++) {
           args = args JUS opts[opt i]
           delete opts[opt i]
         }
+        args = args postconfig
 
       } else {
         if($2) {
 
           # Single value option (no brackets around metavar in spec)
-          args = args opts[opt]
+          args = args preconfig opts[opt] postconfig
 
         } else {
 
           # Flag (no metavar in spec)
           if(opts[opt] == "") {
-            opts[opt] = def
+            opts[opt] = booldef
           }
 
-          args = args mapbool(opts[opt], opt)
+          args = args preconfig mapbool(opts[opt], opt) postconfig
         }
         delete opts[opt]
       }
-    } else {
-      envopt = envname "_" substr(opt, 2)
-      gsub(/-/, "_", envopt)
 
-      if(def) {
-        args = args mapbool(def, opt)
-      } else {
-        if($2 !~ /\[[A-Za-z0-9]/) {
-          n = index($0, "=")
-          if(n) {
-            args = args substr($0, n + 1)
+    } else {
+      if(! config) {
+        envopt = envname "_" substr(opt, 2)
+        gsub(/-/, "_", envopt)
+
+        if(booldef) {
+          args = args mapbool(def, opt)
+        } else {
+          if($2 !~ /\[[A-Za-z0-9]/) {
+            n = index($0, "=")
+            if(n) {
+              args = args substr($0, n + 1)
+            }
           }
         }
-      }
 
-      if(ENVIRON[envopt]) {
-        if($2) {
-          args = args ENVIRON[envopt]
-        } else {
-          args = args mapbool(ENVIRON[envopt], opt)
+        if(ENVIRON[envopt]) {
+          if($2) {
+            args = args ENVIRON[envopt]
+          } else {
+            args = args mapbool(ENVIRON[envopt], opt)
+          }
         }
       }
     }
@@ -1254,6 +1295,12 @@ _junonia_set_args () {
   # this is a positional parameter. Assign the current positional parameter
   # value and increment to the next positional value.
   indented && $0 ~ /^ *[_A-Z0-9]+=*/ {
+    if(config && pos[p] != "") {
+      echoerr("positional parameters cannot be set via config: " pos[p])
+      e = 1
+      exit
+    }
+
     if(pos[p] != "") {
       args = args pos[p] JRS
       p++
@@ -1301,6 +1348,9 @@ _junonia_set_args () {
       echoerr("unknown option: " i)
       exit 1
     }
+
+    # If the config subcommand was specified, append it to the function name
+    func_name = func_name "_config"
 
     # Output everything properly separated for processing.
     print func_name JRS args
@@ -1497,12 +1547,9 @@ _junonia_exec () {
   fi
 
   # Check for help
-  helpfunc=
   if echo "$func" | grep -Eq '_help$'; then
     helpfunc="${func%_help}"
-  fi
 
-  if [ -n "$helpfunc" ]; then
     cmd="$(echo $helpfunc | sed 's/_/ /g')"
     case "$spec_src_type" in
       dir)
@@ -1542,6 +1589,17 @@ _junonia_exec () {
   if [ -n "$filter_func" ] && command -v "$filter_func" >/dev/null 2>&1; then
      $filter_func "$@"
      shift_n=$?
+  fi
+
+  # Check for config
+  if echo "$func" | grep -Eq '_config$'; then
+    if echo "$*" | grep -Eq '^ *$'; then
+      cat "$JUNONIA_CONFIG"
+      return 1
+    else
+      junonia_update_config "$JUNONIA_CONFIG" "$@"
+      return 1
+    fi
   fi
 
   # The filter function might indicate via its return value that we should
