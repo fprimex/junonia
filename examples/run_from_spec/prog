@@ -1,6 +1,6 @@
 #!/bin/sh
 
-. ../../junonia.sh
+. ../../junonia
 
 prog () {
   echo "shared arg: $1"
