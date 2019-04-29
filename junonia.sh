@@ -8,7 +8,7 @@
 # junonia_run, the main entrypoint that runs auto-discovery
 #
 # Then, in junonia.sh the following is run:
-# junonia_init to set up the environment
+# junonia_init to set up the environment upon being sourced
 # junonia_run_* function chosen based on auto-discovery
 #   possibly _junonia_md2spec to generate spec from md files
 #   _junonia_run_final to collect all of the run options and start execution
@@ -351,8 +351,8 @@ junonia_awk_ncol='
 # are random enough for temporary file names and the like.
 #
 # The seed HAS to be sufficient in order for this to work. Sending the current
-# time, for example, is not usually sufficient. See the shell wrapper for an
-# example of a suitable seed.
+# time, for example, is not usually sufficient unless using a nonstandard level
+# of precision. See the shell wrapper for an example of a suitable seed.
 junonia_awk_randomish_int='
   function randomish_int(s, n) {
     # A seed has to be given
@@ -365,11 +365,11 @@ junonia_awk_randomish_int='
       n=10
     }
 
-    # As mentioned above, the seed given here needs to be suitable.
+    # As mentioned, the seed given here needs to be suitable.
     srand(s)
 
-    # Initial accumulation. String leading zeros from this one so the result
-    # is useful as an integer.
+    # Initial accumulation. Strip leading zeros from this one so the result is
+    # useful as an integer.
     r = rand()
     sub(/0\.0*/, "", r)
 
@@ -441,9 +441,8 @@ junonia_twocol () {
 
 # Shell entrypoint for printing n listings of text in n columns, separated by
 # n-1 gutter strings and prefixed by a string.  Since Bourne shell has no
-# arrays, use FS (JUNONIA_FS) to separate the array entries to go to awk.
+# arrays, use JUNONIA_FS to separate the array entries to go to awk.
 junonia_ncol () {
-  junonia_init
   awk_prog='BEGIN {
     n = split(t, ta)
     split(c, ca)
@@ -830,11 +829,240 @@ _junonia_md2help () {
     return 1
   fi
 
-  junonia_init
-
   cat | awk -v wrap="$JUNONIA_WRAP" -v col1="$JUNONIA_COL1" \
             -v col2="$JUNONIA_COL2" -v cmd="$1" \
             "$JUNONIA_AWKS $awk_prog"
+}
+
+
+###
+### Meta-commands
+###
+
+# All junonia programs support the following commands, which will be injected.
+# Docs are created in functions so the titles can be set with the target
+# program name.
+_junonia_cmds='  help
+  config
+  cache
+  plugin
+    list
+    search
+      TERM
+    info
+      NAME
+    install
+      NAME
+    uninstall
+      NAME
+    upgrade
+      NAME
+    update'
+
+_junonia_config_md () {
+cat << EOF
+## \`$JUNONIA_TARGET config\`
+
+### Synopsis
+
+    $JUNONIA_TARGET config
+
+### Description
+
+
+
+EOF
+}
+
+_junonia_cache_md () {
+cat << EOF
+## \`$JUNONIA_TARGET cache\`
+
+### Synopsis
+
+    $JUNONIA_TARGET cache
+
+### Description
+
+
+
+EOF
+}
+
+_junonia_plugin_md () {
+cat << EOF
+## \`$JUNONIA_TARGET plugin\`
+
+### Synopsis
+
+    $JUNONIA_TARGET plugin
+
+### Description
+
+
+
+EOF
+}
+
+_junonia_plugin_list_md () {
+cat << EOF
+## \`$JUNONIA_TARGET plugin list\`
+
+### Synopsis
+
+    $JUNONIA_TARGET plugin list
+
+### Description
+
+
+
+EOF
+}
+
+_junonia_plugin_search_md () {
+cat << EOF
+## \`$JUNONIA_TARGET plugin search\`
+
+### Synopsis
+
+    $JUNONIA_TARGET plugin search TERM
+
+### Description
+
+### Positional parameters
+
+* \`TERM\`
+
+EOF
+}
+
+_junonia_plugin_info_md () {
+cat << EOF
+## \`$JUNONIA_TARGET plugin info\`
+
+### Synopsis
+
+    $JUNONIA_TARGET plugin info
+
+### Description
+
+
+### Positional parameters
+
+* \`NAME\`
+
+EOF
+}
+
+_junonia_plugin_install_md () {
+cat << EOF
+## \`$JUNONIA_TARGET plugin install\`
+
+### Synopsis
+
+    $JUNONIA_TARGET plugin install
+
+### Description
+
+### Positional parameters
+
+* \`NAME\`
+
+
+EOF
+}
+
+_junonia_plugin_uninstall_md () {
+cat << EOF
+## \`$JUNONIA_TARGET plugin uninstall\`
+
+### Synopsis
+
+    $JUNONIA_TARGET plugin uninstall
+
+### Description
+
+
+### Positional parameters
+
+* \`NAME\`
+
+EOF
+}
+
+_junonia_plugin_upgrade_md () {
+cat << EOF
+## \`$JUNONIA_TARGET plugin upgrade\`
+
+### Synopsis
+
+    $JUNONIA_TARGET plugin upgrade
+
+### Description
+
+### Positional parameters
+
+* \`NAME\`
+
+
+EOF
+}
+
+_junonia_plugin_update_md () {
+cat << EOF
+## \`$JUNONIA_TARGET plugin update\`
+
+### Synopsis
+
+    $JUNONIA_TARGET plugin update
+
+### Description
+
+EOF
+}
+
+_junonia_config () {
+  if echo "$*" | grep -Eq '^ *$'; then
+    cat "$JUNONIA_CONFIG"
+  else
+    junonia_update_config "$JUNONIA_CONFIG" "$@"
+  fi
+}
+
+_junonia_cache () {
+  echo cache
+}
+
+_junonia_plugin () {
+  echo plugin
+}
+
+_junonia_plugin_list () {
+  echo plugin list
+}
+
+_junonia_plugin_search () {
+  echo plugin search
+}
+
+_junonia_plugin_info () {
+  echo plugin info
+}
+
+_junonia_plugin_install () {
+  echo plugin install
+}
+
+_junonia_plugin_uninstall () {
+  echo plugin uninstall
+}
+
+_junonia_plugin_upgrade () {
+  echo plugin upgrade
+}
+
+_junonia_plugin_update () {
+  echo plugin update
 }
 
 
@@ -871,18 +1099,19 @@ junonia_init () {
   # JUNONIA_PATH    Absolute path to the directory containing the script
 
   # Variables set by  junonia_init:
-  # JUNONIA_NAME    Name of the script after resolving symlinks and removing .sh
-  # JUNONIA_CAPNAME Name in all caps
-  # JUNONIA_CONFIG  Path to script rc file
-  # JUNONIA_INIT    Init guard to prevent attempted re-inits
-  # JUNONIA_FS      Information separators
+  # JUNONIA_NAME       Name of script after resolving symlinks and removing .sh
+  # JUNONIA_CAPNAME    Name in all caps
+  # JUNONIA_CONFIG     Path to script rc file
+  # JUNONIA_CONFIGDIR  Path to config directory
+  # JUNONIA_INIT       Init guard to prevent attempted re-inits
+  # JUNONIA_FS         Information separators
   # JUNONIA_GS
   # JUNONIA_RS
   # JUNONIA_US
-  # JUNONIA_WRAP    Width of two column output (option help listings)
-  # JUNONIA_COL1    Width of column one
-  # JUNONIA_COL2    Width of column two
-  # TMPDIR          Set if unset, consistently formatted with ending '/' removed
+  # JUNONIA_WRAP       Width of two column output (option help listings)
+  # JUNONIA_COL1       Width of column one
+  # JUNONIA_COL2       Width of column two
+  # TMPDIR             Set if unset, always format with ending '/' removed
 
   # This variable is used / checked, but is not set by junonia itself.
   # JUNONIA_DEBUG   Whether or not to show output on stderr from echodebug (FD3)
@@ -892,9 +1121,9 @@ junonia_init () {
     return
   fi
 
-  JUNONIA_WRAP=78
-  JUNONIA_COL1=18
-  JUNONIA_COL2=60
+  JUNONIA_WRAP="${JUNONIA_WRAP:-78}"
+  JUNONIA_COL1="${JUNONIA_COL1:-18}"
+  JUNONIA_COL2="${JUNONIA_COL2:-60}"
 
   # Information Separator control characters (IS4 - IS1)
   readonly JUNONIA_FS="" # File   Separator (FS / IS4 / dec 28)
@@ -915,7 +1144,7 @@ junonia_init () {
   # in advance, or can be set in advance. Otherwise bootstrapping will be
   # attempted if the function is defined.
   if [ -z "$JUNONIA_TARGET" ]; then
-    if ! JUNONIA_TARGET="$(junonia_bootstrap >/dev/null 2>&1)"; then
+    if ! junonia_bootstrap; then
       echoerr "failed to bootstrap and init"
       return 1
     fi
@@ -942,9 +1171,14 @@ junonia_init () {
                               'BEGIN{print toupper(n)}')"
   export   JUNONIA_CAPNAME
 
-  # Path to the config file
-  readonly _JUNONIA_CONFIG_DEFAULT="$HOME/.$JUNONIA_NAME/${JUNONIA_NAME}rc.sh"
-  readonly JUNONIA_CONFIG="${JUNONIA_CONFIG:-"$_JUNONIA_CONFIG_DEFAULT"}"
+  # Path to the config dir and file
+  readonly _JUNONIA_CONFIGDIR_DEF="$HOME/.$JUNONIA_NAME"
+  readonly _JUNONIA_CONFIG_DEF="$_JUNONIA_CONFIGDIR_DEF/${JUNONIA_NAME}rc.sh"
+
+  readonly JUNONIA_CONFIGDIR="${JUNONIA_CONFIGDIR:-"$_JUNONIA_CONFIGDIR_DEF"}"
+  readonly JUNONIA_CONFIG="${JUNONIA_CONFIG:-"$_JUNONIA_CONFIG_DEF"}"
+
+  export   JUNONIA_CONFIGDIR
   export   JUNONIA_CONFIG
 
   # Configure if debug messages will be printed.
@@ -983,8 +1217,6 @@ junonia_init () {
 # 'SCRIPT_<valid identifier chars>=', and the first field split on = is
 # evaluated. Therefore, what is being 'eval'ed is a potential variable name.
 _junonia_get_envvars () {
-  junonia_init
-
   for v in $(env | awk -F= -v n="$JUNONIA_CAPNAME" \
              '$0 ~ "^" n "_[_A-Za-z0-9]+=" {print $1}'); do
     eval if [ \"'${'$v+set}\" = set ]\; then echo $v\; fi
@@ -999,8 +1231,6 @@ _junonia_get_envvars () {
 # $1      The full text of a program argument spec.
 # $2 - $N The program name and arguments from the command line.
 _junonia_set_args () {
-  junonia_init
-
   # NOTE THAT THE CONFIG FILE IS *MEANT* TO BE AN RC FILE WHERE YOU CAN SET
   # ARGUMENT VARS AND RUN COMMANDS FOR SETUP TYPE THINGS. ARBITRARY COMMANDS
   # CAN BE EXECUTED. THIS IS BY DESIGN. THE SECURITY MODEL OF SHELL SCRIPTING
@@ -1186,7 +1416,9 @@ _junonia_set_args () {
         pos[i] = pos[i+1]
       }
 
-      config = 1
+      # Set the variable config to the name of the program being configured.
+      # This serves as both a flag and as information for later.
+      config = pos[1]
     }
 
     # Both subcommands and positional arguments are stored in the same
@@ -1350,7 +1582,9 @@ _junonia_set_args () {
     }
 
     # If the config subcommand was specified, append it to the function name
-    func_name = func_name "_config"
+    if(config) {
+      func_name = config "_config"
+    }
 
     # Output everything properly separated for processing.
     print func_name JRS args
@@ -1367,8 +1601,6 @@ _junonia_set_args () {
 
 # Perform a search for defaults and run with them if found.
 junonia_run () {
-  junonia_init
-
   # Look for a filter function named
   # ${JUNONIA_NAME}_junonia_filter (e.g. myscript_junonia_filter)
   if command -v ${JUNONIA_NAME}_junonia_filter >/dev/null 2>&1; then
@@ -1397,6 +1629,20 @@ junonia_run () {
   if [ -f "$JUNONIA_PATH/$JUNONIA_NAME.md" ]; then
     junonia_runmd_filtered "$filter_func" "$JUNONIA_PATH/$JUNONIA_NAME.md" "$@"
     return $?
+  fi
+
+  # There is a shell function that can provide a markdown doc named
+  # script_junonia_md
+  # so run with it.
+  if command -v ${JUNONIA_NAME}_junonia_md >/dev/null 2>&1; then
+    md="$(${JUNONIA_NAME}_junonia_md)"
+    if [ -n "$md" ]; then
+      junonia_runspec_filtered "$filter_func" "$md" "$@"
+      return $?
+    else
+      echoerr "markdown function content was empty"
+      return 1
+    fi
   fi
 
   # There is a shell function that can provide a spec named
@@ -1495,10 +1741,25 @@ _junonia_run_final () {
   spec="$1"
   shift
 
-  # Ready to start the run, so set up the execution environment. If junonia_run
-  # was called with auto-discovery then this already happened, but it's always
-  # safe to rerun init as it has a guard.
-  junonia_init
+  # Insert the standard meta parameters.
+  spec="$(
+    echo "$spec" | awk -v s="$_junonia_cmds" '
+      /^[a-z]/ {
+        insert_meta = 1
+        print
+        next
+      }
+      insert_meta && /^  [a-z]/ {
+        print s
+        print
+        insert_meta = 0
+        next
+      }
+      {
+        print
+      }
+    '
+  )"
 
   # The argument values in the order defined in the spec.
   if ! arg_vals="$(_junonia_set_args "$spec" "$JUNONIA_NAME" "$@")"; then
@@ -1583,23 +1844,32 @@ _junonia_exec () {
     esac
   fi
 
+  skip_filter=
+  # Check for one of the other meta-commands.
+  for f in ${JUNONIA_NAME}_config \
+           ${JUNONIA_NAME}_cache \
+           ${JUNONIA_NAME}_plugin \
+           ${JUNONIA_NAME}_plugin_list \
+           ${JUNONIA_NAME}_plugin_search \
+           ${JUNONIA_NAME}_plugin_info \
+           ${JUNONIA_NAME}_plugin_install \
+           ${JUNONIA_NAME}_plugin_uninstall \
+           ${JUNONIA_NAME}_plugin_upgrade \
+           ${JUNONIA_NAME}_plugin_update; do
+    if [ $func = $f ]; then
+      func=_junonia${func#$JUNONIA_NAME}
+      skip_filter=1
+      break
+    fi
+  done
+
   shift_n=0
 
-  # If there is a filter function, then run it.
-  if [ -n "$filter_func" ] && command -v "$filter_func" >/dev/null 2>&1; then
+  # If there is a filter function and it is not getting skipped, then run it.
+  if [ ! $skip_filter ] && [ -n "$filter_func" ] &&
+       command -v "$filter_func" >/dev/null 2>&1; then
      $filter_func "$@"
      shift_n=$?
-  fi
-
-  # Check for config
-  if echo "$func" | grep -Eq '_config$'; then
-    if echo "$*" | grep -Eq '^ *$'; then
-      cat "$JUNONIA_CONFIG"
-      return 1
-    else
-      junonia_update_config "$JUNONIA_CONFIG" "$@"
-      return 1
-    fi
   fi
 
   # The filter function might indicate via its return value that we should
@@ -1618,11 +1888,11 @@ _junonia_exec () {
       0) p="$JUNONIA_PATH/$func.sh";;
       1) p="$JUNONIA_PATH/cmd/$func.sh";;
       2) p="$JUNONIA_PATH/cmds/$func.sh";;
-      3) p="$JUNONIA_PREFIX/lib/$JUNONIA_NAME/$func.sh";;
-      4) p="$JUNONIA_PREFIX/lib/$JUNONIA_NAME/cmd/$func.sh";;
-      5) p="$JUNONIA_PREFIX/lib/$JUNONIA_NAME/cmds/$func.sh";;
-      6) p="$JUNONIA_PREFIX/lib/$JUNONIA_NAME/command/$func.sh";;
-      7) p="$JUNONIA_PREFIX/lib/$JUNONIA_NAME/commands/$func.sh";;
+      3) p="$JUNONIA_PATH/lib/$JUNONIA_NAME/$func.sh";;
+      4) p="$JUNONIA_PATH/lib/$JUNONIA_NAME/cmd/$func.sh";;
+      5) p="$JUNONIA_PATH/lib/$JUNONIA_NAME/cmds/$func.sh";;
+      6) p="$JUNONIA_PATH/lib/$JUNONIA_NAME/command/$func.sh";;
+      7) p="$JUNONIA_PATH/lib/$JUNONIA_NAME/commands/$func.sh";;
       *)
         echoerr "command not found: $(echo $func | sed 's/_/ /g')"
         return 1
@@ -1648,4 +1918,14 @@ _junonia_exec () {
   $func "$@"
 }
 
+# Set up the execution environment. Init is always safe to rerun init as it has
+# a guard. If junonia is copied into the bottom of a scirpt for single-file
+# distribution, for example, junonia_init will need to be run at the top. When
+# this one runs it will just return. Therefore, for single-file distributed
+# scripts, use an explicit exit statement before the junonia code to return
+# anything other than 0.
 junonia_init
+
+if [ "$JUNONIA_NAME" = "junonia" ]; then
+  junonia_run "$@"
+fi
