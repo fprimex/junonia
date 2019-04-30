@@ -718,7 +718,6 @@ _junonia_md2help () {
       description = 0
       positional = 0
       options = 0
-      subcmd = ""
     }
 
     # Top level "##" header
@@ -739,6 +738,7 @@ _junonia_md2help () {
       if(h2 == 2) {
         txt = txt "SUBCOMMANDS\n"
       }
+
       subcmd = $NF
       next
     }
@@ -748,8 +748,15 @@ _junonia_md2help () {
       next
     }
 
+    subcmd && /^#/ {
+      txt = txt "  " subcmd "\n"
+      subcmd = ""
+      next
+    }
+
     subcmd && ! /^$/ {
       txt = txt twocol(subcmd, $0, col1 - 3, col2, " ", "  ") "\n"
+      subcmd = ""
       next
     }
 
@@ -859,20 +866,23 @@ _junonia_cmds='  help
       NAME
     upgrade
       NAME
-    update'
-
+    update
+  version
+    -junonia'
 
 _junonia_md () {
 cat << EOF
 ## \`$JUNONIA_NAME\`
 
+bourne shell scripting framework and program
+
 ### Synopsis
 
-    $JUNONIA_NAME
+    $JUNONIA_NAME SUBCOMMAND
 
 ### Description
 
-
+Junonia is a Bourne shell framework for writing scripts. It is also a standalone program that can be used to retrieve and execute other plugins and programs.
 
 EOF
 }
@@ -881,13 +891,15 @@ _junonia_help_md () {
 cat << EOF
 ## \`$JUNONIA_NAME help\`
 
+print information about program and subcommand usage
+
 ### Synopsis
 
-    $JUNONIA_NAME help
+    $JUNONIA_NAME [SUBCOMMAND] help [SUBCOMMAND]
 
 ### Description
 
-
+The help subcommand shows information about program and subcommand usage, including options, positional parameters, and subcommands. It can come before or after the subcommand for which help should be displayed.
 
 EOF
 }
@@ -896,13 +908,15 @@ _junonia_config_md () {
 cat << EOF
 ## \`$JUNONIA_NAME config\`
 
+display or edit the \`$JUNONIA_NAME\` config file
+
 ### Synopsis
 
-    $JUNONIA_NAME config
+    $JUNONIA_NAME config [subcommand] [options]
 
 ### Description
 
-
+Running \`config\` without any options displays the current configuration. To set program options, run \`$JUNONIA_NAME config\` followed by the subcommand, options, and option values as they would be provided during an invocation of that command.
 
 EOF
 }
@@ -911,13 +925,15 @@ _junonia_cache_md () {
 cat << EOF
 ## \`$JUNONIA_NAME cache\`
 
+generate or clear meta-information cache
+
 ### Synopsis
 
-    $JUNONIA_NAME cache
+    $JUNONIA_NAME cache [-clear]
 
 ### Description
 
-
+Information that needs to be generated to parse arguments and display help can be cached in the user config directory and used instead.
 
 EOF
 }
@@ -926,13 +942,15 @@ _junonia_plugin_md () {
 cat << EOF
 ## \`$JUNONIA_NAME plugin\`
 
+manage junonia shell plugins and programs
+
 ### Synopsis
 
     $JUNONIA_NAME plugin
 
 ### Description
 
-
+Shell plugins and programs can be stored in the user config directory. Plugins can add subcommands to programs or provide new functions that can be used by existing or new plugins.
 
 EOF
 }
@@ -941,13 +959,11 @@ _junonia_plugin_list_md () {
 cat << EOF
 ## \`$JUNONIA_NAME plugin list\`
 
+show installed plugins
+
 ### Synopsis
 
     $JUNONIA_NAME plugin list
-
-### Description
-
-
 
 EOF
 }
@@ -956,15 +972,21 @@ _junonia_plugin_search_md () {
 cat << EOF
 ## \`$JUNONIA_NAME plugin search\`
 
+search the plugin registry for matches
+
 ### Synopsis
 
     $JUNONIA_NAME plugin search TERM
 
 ### Description
 
+The plugin registry contains information about plugins and programs that can be retrieved for installation. The listings include authors, plugin names, tags, and short descriptions. The \`TERM\` supplied is passed to an \`awk\` script for matching, and matches are printed for any match found in the information.
+
 ### Positional parameters
 
 * \`TERM\`
+
+Search term to match on author, package name, tags, and descriptions. The term can be a simple word or any regular expression that is valid in AWK.
 
 EOF
 }
@@ -973,16 +995,21 @@ _junonia_plugin_info_md () {
 cat << EOF
 ## \`$JUNONIA_NAME plugin info\`
 
+display a plugin or program summary
+
 ### Synopsis
 
-    $JUNONIA_NAME plugin info
+    $JUNONIA_NAME plugin info NAME
 
 ### Description
 
+Info displays the registry information about a package.
 
 ### Positional parameters
 
 * \`NAME\`
+
+Exact name of the package in author/name form.
 
 EOF
 }
@@ -991,16 +1018,21 @@ _junonia_plugin_install_md () {
 cat << EOF
 ## \`$JUNONIA_NAME plugin install\`
 
+retrieve and install plugins and programs
+
 ### Synopsis
 
-    $JUNONIA_NAME plugin install
+    $JUNONIA_NAME plugin install NAME
 
 ### Description
+
+Install searches for, downloads, and extracts plugins and programs to the user plugin directory in the user config directory. If the item being installed is a program, the program script will be symlinked in the user bin directory in the user config directory.
 
 ### Positional parameters
 
 * \`NAME\`
 
+Plugin or program name in author/name form
 
 EOF
 }
@@ -1009,16 +1041,21 @@ _junonia_plugin_uninstall_md () {
 cat << EOF
 ## \`$JUNONIA_NAME plugin uninstall\`
 
+remove an installed plugin or program
+
 ### Synopsis
 
-    $JUNONIA_NAME plugin uninstall
+    $JUNONIA_NAME plugin uninstall NAME
 
 ### Description
 
+Uninstall removes the specified plugin or program by deleting the directory. If the item is a program, the symlink in the user bin directory in the user config directory is also deleted.
 
 ### Positional parameters
 
 * \`NAME\`
+
+Plugin or program name in author/name form
 
 EOF
 }
@@ -1027,16 +1064,21 @@ _junonia_plugin_upgrade_md () {
 cat << EOF
 ## \`$JUNONIA_NAME plugin upgrade\`
 
+search for and retrieve a new plugin or program version
+
 ### Synopsis
 
-    $JUNONIA_NAME plugin upgrade
+    $JUNONIA_NAME plugin upgrade NAME
 
 ### Description
+
+Upgrade searches the registry for a version newer than the one currently installed. Installation is performed by downloading the newer version, uninstalling the existing version, then installing the downloaded version.
 
 ### Positional parameters
 
 * \`NAME\`
 
+Plugin or program name in author/name form
 
 EOF
 }
@@ -1045,11 +1087,30 @@ _junonia_plugin_update_md () {
 cat << EOF
 ## \`$JUNONIA_NAME plugin update\`
 
+update the plugin registry cache
+
 ### Synopsis
 
     $JUNONIA_NAME plugin update
 
-### Description
+EOF
+}
+
+_junonia_version_md () {
+cat << EOF
+## \`$JUNONIA_NAME version\`
+
+display program version
+
+### Synopsis
+
+    $JUNONIA_NAME version [-junonia]
+
+### Options
+
+* \`-junonia\`
+
+Display the junonia library version
 
 EOF
 }
@@ -1066,6 +1127,7 @@ _junonia_plugin_install_md
 _junonia_plugin_uninstall_md
 _junonia_plugin_upgrade_md
 _junonia_plugin_update_md
+_junonia_version
 }
 
 junonia () {
@@ -1099,6 +1161,7 @@ _junonia_help () {
           cat "$md/$helpfunc.md"
           find -E "$md" -type f -regex "$md/$helpfunc"'_[^_]+\.md' \
              -exec cat {} \;
+          _junonia_mds
         } | _junonia_md2help "$cmd"
       else
         if command -v $helpfunc >/dev/null 2>&1; then
@@ -1137,11 +1200,24 @@ _junonia_cache () {
 }
 
 _junonia_plugin () {
-  echo plugin
+  exec "$0" plugin help
 }
 
 _junonia_plugin_list () {
-  echo plugin list
+  if [ -d "$JUNONIA_CONFIGDIR/plugins" ]; then
+    cd "$JUNONIA_CONFIGDIR/plugins"
+    for d in */; do
+      if ! echo "$d" | grep -q '\.'; then
+        echo "${d%/}"
+      else
+        for siteorg in "${d%/}"/*/; do
+          for orgplugin in "${siteorg%/}"/*/; do
+            echo "${orgplugin%/}"
+          done
+        done
+      fi
+    done
+  fi
 }
 
 _junonia_plugin_search () {
@@ -1168,6 +1244,24 @@ _junonia_plugin_update () {
   echo plugin update
 }
 
+_junonia_version () {
+  if command -v ${JUNONIA_NAME}_version >/dev/null 2>&1; then
+    ver="$JUNONIA_NAME $(${JUNONIA_NAME}_version)"
+  else
+    ver="$JUNONIA_NAME unversioned"
+  fi
+
+  if [ -n "$1" ]; then
+    if [ -n "$JUNONIA_VERSION" ]; then
+      ver="$ver (junonia $JUNONIA_VERSION)"
+    else
+      ver="$ver (junonia unversioned)"
+    fi
+  fi
+
+  echo "$ver"
+}
+
 _junonia_normalize_func () {
   if [ "$1" = _junonia_help ]; then
     echo "$1"
@@ -1184,7 +1278,8 @@ _junonia_normalize_func () {
            ${JUNONIA_NAME}_plugin_install \
            ${JUNONIA_NAME}_plugin_uninstall \
            ${JUNONIA_NAME}_plugin_upgrade \
-           ${JUNONIA_NAME}_plugin_update; do
+           ${JUNONIA_NAME}_plugin_update \
+           ${JUNONIA_NAME}_version; do
     if [ "$1" = "$f" ]; then
       echo _junonia${1#$JUNONIA_NAME}
       return 0
@@ -1909,7 +2004,7 @@ _junonia_run_final () {
     '
   )"
 
-  # The argument values in the order defined in the spec.
+  # Retrieve the argument values in the order defined in the spec.
   if ! arg_vals="$(_junonia_set_args "$md" "$spec_src_type" "$spec" \
                                      "$JUNONIA_NAME" "$@")"; then
     # An error should have been supplied on stderr
@@ -1957,20 +2052,28 @@ _junonia_exec () {
   fi
 
   # Meta-commands should not be put through the user filter.
-  func="$(_junonia_normalize_func $func)"
-  skip_filter=$?
-
-  shift_n=0
-
-  # If there is a filter function and it is not getting skipped, then run it.
-  if [ $skip_filter -ne 0 ] && [ -n "$filter_func" ] &&
-       command -v "$filter_func" >/dev/null 2>&1; then
-     $filter_func "$@"
-     shift_n=$?
+  if func="$(_junonia_normalize_func $func)"; then
+    # If the user filter is getting skipped then a meta parameter is being run.
+    # So the script's top level positional parameters and options need to be
+    # filtered out. Does not apply to config and help.
+    if [ $func = _junonia_help ] || [ $func = _junonia_config ]; then
+      shift_n=0
+    else
+      awk_prog='/^  [-[A-Z]/ { shift++     }
+                END          { print shift }'
+      shift_n="$(echo "$spec" | awk "$awk_prog")"
+    fi
+  else
+    # If there is a filter function and it is not getting skipped, then run it.
+    if [ -n "$filter_func" ] && command -v "$filter_func" >/dev/null 2>&1; then
+       $filter_func "$@"
+       shift_n=$?
+    fi
   fi
 
-  # The filter function might indicate via its return value that we should
-  # shift off some common (and possibly other) values.
+  # The filter function might indicate via its return value, or the meta filter
+  # by looking at the spec, that we should shift off some common (and possibly
+  # other) values.
   i=0
   while [ $i -lt $shift_n ]; do
     shift
