@@ -729,7 +729,7 @@ _junonia_md2help () {
 
     $0 ~ cmd_re {
       h2++
-      txt = txt "  " $0
+      txt = txt "  " $0 "\n"
       intro = 1
       next
     }
@@ -744,7 +744,7 @@ _junonia_md2help () {
     }
 
     intro && h2 == 1 && ! /^$/ {
-      txt = txt " -- " $0 "\n"
+      txt = substr(txt, 1, length(txt) - 1) " -- " $0 "\n"
       next
     }
 
@@ -861,13 +861,44 @@ _junonia_cmds='  help
       NAME
     update'
 
-_junonia_config_md () {
+
+_junonia_md () {
 cat << EOF
-## \`$JUNONIA_TARGET config\`
+## \`$JUNONIA_NAME\`
 
 ### Synopsis
 
-    $JUNONIA_TARGET config
+    $JUNONIA_NAME
+
+### Description
+
+
+
+EOF
+}
+
+_junonia_help_md () {
+cat << EOF
+## \`$JUNONIA_NAME help\`
+
+### Synopsis
+
+    $JUNONIA_NAME help
+
+### Description
+
+
+
+EOF
+}
+
+_junonia_config_md () {
+cat << EOF
+## \`$JUNONIA_NAME config\`
+
+### Synopsis
+
+    $JUNONIA_NAME config
 
 ### Description
 
@@ -878,11 +909,11 @@ EOF
 
 _junonia_cache_md () {
 cat << EOF
-## \`$JUNONIA_TARGET cache\`
+## \`$JUNONIA_NAME cache\`
 
 ### Synopsis
 
-    $JUNONIA_TARGET cache
+    $JUNONIA_NAME cache
 
 ### Description
 
@@ -893,11 +924,11 @@ EOF
 
 _junonia_plugin_md () {
 cat << EOF
-## \`$JUNONIA_TARGET plugin\`
+## \`$JUNONIA_NAME plugin\`
 
 ### Synopsis
 
-    $JUNONIA_TARGET plugin
+    $JUNONIA_NAME plugin
 
 ### Description
 
@@ -908,11 +939,11 @@ EOF
 
 _junonia_plugin_list_md () {
 cat << EOF
-## \`$JUNONIA_TARGET plugin list\`
+## \`$JUNONIA_NAME plugin list\`
 
 ### Synopsis
 
-    $JUNONIA_TARGET plugin list
+    $JUNONIA_NAME plugin list
 
 ### Description
 
@@ -923,11 +954,11 @@ EOF
 
 _junonia_plugin_search_md () {
 cat << EOF
-## \`$JUNONIA_TARGET plugin search\`
+## \`$JUNONIA_NAME plugin search\`
 
 ### Synopsis
 
-    $JUNONIA_TARGET plugin search TERM
+    $JUNONIA_NAME plugin search TERM
 
 ### Description
 
@@ -940,11 +971,11 @@ EOF
 
 _junonia_plugin_info_md () {
 cat << EOF
-## \`$JUNONIA_TARGET plugin info\`
+## \`$JUNONIA_NAME plugin info\`
 
 ### Synopsis
 
-    $JUNONIA_TARGET plugin info
+    $JUNONIA_NAME plugin info
 
 ### Description
 
@@ -958,11 +989,11 @@ EOF
 
 _junonia_plugin_install_md () {
 cat << EOF
-## \`$JUNONIA_TARGET plugin install\`
+## \`$JUNONIA_NAME plugin install\`
 
 ### Synopsis
 
-    $JUNONIA_TARGET plugin install
+    $JUNONIA_NAME plugin install
 
 ### Description
 
@@ -976,11 +1007,11 @@ EOF
 
 _junonia_plugin_uninstall_md () {
 cat << EOF
-## \`$JUNONIA_TARGET plugin uninstall\`
+## \`$JUNONIA_NAME plugin uninstall\`
 
 ### Synopsis
 
-    $JUNONIA_TARGET plugin uninstall
+    $JUNONIA_NAME plugin uninstall
 
 ### Description
 
@@ -994,11 +1025,11 @@ EOF
 
 _junonia_plugin_upgrade_md () {
 cat << EOF
-## \`$JUNONIA_TARGET plugin upgrade\`
+## \`$JUNONIA_NAME plugin upgrade\`
 
 ### Synopsis
 
-    $JUNONIA_TARGET plugin upgrade
+    $JUNONIA_NAME plugin upgrade
 
 ### Description
 
@@ -1012,15 +1043,85 @@ EOF
 
 _junonia_plugin_update_md () {
 cat << EOF
-## \`$JUNONIA_TARGET plugin update\`
+## \`$JUNONIA_NAME plugin update\`
 
 ### Synopsis
 
-    $JUNONIA_TARGET plugin update
+    $JUNONIA_NAME plugin update
 
 ### Description
 
 EOF
+}
+
+_junonia_mds () {
+_junonia_help_md
+_junonia_config_md
+_junonia_cache_md
+_junonia_plugin_md
+_junonia_plugin_list_md
+_junonia_plugin_search_md
+_junonia_plugin_info_md
+_junonia_plugin_install_md
+_junonia_plugin_uninstall_md
+_junonia_plugin_upgrade_md
+_junonia_plugin_update_md
+}
+
+junonia () {
+  exec "$0" help
+}
+
+_junonia_help () {
+  md="$1"
+  shift
+
+  spec_src_type="$1"
+  shift
+
+  spec="$1"
+  shift
+
+  helpfunc="$1"
+  shift
+
+  cmd="$(echo $helpfunc | sed 's/_/ /g;s/^ *//;s/ *$//')"
+
+  if helpfunc=$(_junonia_normalize_func $helpfunc); then
+    spec_src_type=md_string
+    md="$(${helpfunc}_md)"
+  fi
+
+  case "$spec_src_type" in
+    dir)
+      if [ -f "$md/$helpfunc.md" ]; then
+        {
+          cat "$md/$helpfunc.md"
+          find -E "$md" -type f -regex "$md/$helpfunc"'_[^_]+\.md' \
+             -exec cat {} \;
+        } | _junonia_md2help "$cmd"
+      else
+        if command -v $helpfunc >/dev/null 2>&1; then
+          echoerr "help not found for command: $cmd"
+        else
+          echoerr "command not found: $cmd"
+        fi
+      fi
+      return 0
+      ;;
+    file)
+      cat "$md" | _junonia_md2help "$cmd"
+      return 0
+      ;;
+    md_string)
+      echo "$md" | _junonia_md2help "$cmd"
+      return 0
+      ;;
+    spec_string)
+      echo "$spec" | awk '{sub(/^# /, ""); print}'
+      return 0
+      ;;
+  esac
 }
 
 _junonia_config () {
@@ -1067,6 +1168,32 @@ _junonia_plugin_update () {
   echo plugin update
 }
 
+_junonia_normalize_func () {
+  if [ "$1" = _junonia_help ]; then
+    echo "$1"
+    return 0
+  fi
+
+  # Check for meta-commands
+  for f in ${JUNONIA_NAME}_config \
+           ${JUNONIA_NAME}_cache \
+           ${JUNONIA_NAME}_plugin \
+           ${JUNONIA_NAME}_plugin_list \
+           ${JUNONIA_NAME}_plugin_search \
+           ${JUNONIA_NAME}_plugin_info \
+           ${JUNONIA_NAME}_plugin_install \
+           ${JUNONIA_NAME}_plugin_uninstall \
+           ${JUNONIA_NAME}_plugin_upgrade \
+           ${JUNONIA_NAME}_plugin_update; do
+    if [ "$1" = "$f" ]; then
+      echo _junonia${1#$JUNONIA_NAME}
+      return 0
+    fi
+  done
+
+  echo "$1"
+  return 1
+}
 
 ###
 ### Execution environment setup and management
@@ -1289,6 +1416,12 @@ _junonia_set_args () {
     eval "$evalcmds"
   fi
 
+  md="$1"
+  shift
+
+  spec_src_type="$1"
+  shift
+
   spec="$1"
   shift
 
@@ -1388,7 +1521,7 @@ _junonia_set_args () {
             func_name = func_name "_" ARGV[i+1]
           }
 
-          print func_name "_help" JRS args
+          print "_junonia_help" JRS md JRS spec_src_type JRS spec JRS func_name
           e = 0
           exit
         }
@@ -1567,7 +1700,7 @@ _junonia_set_args () {
 
   END {
     # There was an error and we should just exit.
-    if(e) {
+    if(e != "") {
       exit e
     }
 
@@ -1593,7 +1726,8 @@ _junonia_set_args () {
   }'
 
   echo "$spec" | awk -v JRS="$JUNONIA_RS" -v JUS="$JUNONIA_US" \
-                     "$JUNONIA_AWKS $awk_prog" - "$@"
+                     -v md="$md" -v spec_src_type="$spec_src_type" \
+                     -v spec="$spec" "$JUNONIA_AWKS $awk_prog" - "$@"
 }
 
 
@@ -1603,6 +1737,13 @@ _junonia_set_args () {
 
 # Perform a search for defaults and run with them if found.
 junonia_run () {
+  # This file is the program being run, which is a special case.
+  if [ "$JUNONIA_NAME" = junonia ]; then
+    #junonia_runspec junonia "$@"
+    junonia_runmd "$(_junonia_md) $(_junonia_mds)" "$@"
+    return $?
+  fi
+
   # Look for a filter function named
   # ${JUNONIA_NAME}_junonia_filter (e.g. myscript_junonia_filter)
   if command -v ${JUNONIA_NAME}_junonia_filter >/dev/null 2>&1; then
@@ -1760,11 +1901,17 @@ _junonia_run_final () {
       {
         print
       }
+      END {
+        if(insert_meta) {
+          print s
+        }
+      }
     '
   )"
 
   # The argument values in the order defined in the spec.
-  if ! arg_vals="$(_junonia_set_args "$spec" "$JUNONIA_NAME" "$@")"; then
+  if ! arg_vals="$(_junonia_set_args "$md" "$spec_src_type" "$spec" \
+                                     "$JUNONIA_NAME" "$@")"; then
     # An error should have been supplied on stderr
     return 1
   fi
@@ -1809,66 +1956,14 @@ _junonia_exec () {
     return 1
   fi
 
-  # Check for help
-  if echo "$func" | grep -Eq '_help$'; then
-    helpfunc="${func%_help}"
-
-    cmd="$(echo $helpfunc | sed 's/_/ /g')"
-    case "$spec_src_type" in
-      dir)
-        if [ -f "$md/$helpfunc.md" ]; then
-          {
-            cat "$md/$helpfunc.md"
-            find -E "$md" -type f -regex "$md/$helpfunc"'_[^_]+\.md' \
-               -exec cat {} \;
-          } | _junonia_md2help "$cmd"
-        else
-          if command -v $helpfunc >/dev/null 2>&1; then
-            echoerr "help not found for command: $cmd"
-          else
-            echoerr "command not found: $cmd"
-          fi
-        fi
-        return 0
-        ;;
-      file)
-        cat "$md" | _junonia_md2help "$cmd"
-        return 0
-        ;;
-      md_string)
-        echo "$md" | _junonia_md2help "$cmd"
-        return 0
-        ;;
-      spec_string)
-        echo "$spec" | awk '{sub(/^# /, ""); print}'
-        return 0
-        ;;
-    esac
-  fi
-
-  skip_filter=
-  # Check for one of the other meta-commands.
-  for f in ${JUNONIA_NAME}_config \
-           ${JUNONIA_NAME}_cache \
-           ${JUNONIA_NAME}_plugin \
-           ${JUNONIA_NAME}_plugin_list \
-           ${JUNONIA_NAME}_plugin_search \
-           ${JUNONIA_NAME}_plugin_info \
-           ${JUNONIA_NAME}_plugin_install \
-           ${JUNONIA_NAME}_plugin_uninstall \
-           ${JUNONIA_NAME}_plugin_upgrade \
-           ${JUNONIA_NAME}_plugin_update; do
-    if [ $func = $f ]; then
-      func=_junonia${func#$JUNONIA_NAME}
-      skip_filter=1
-      break
-    fi
-  done
+  # Meta-commands should not be put through the user filter.
+  func="$(_junonia_normalize_func $func)"
+  skip_filter=$?
 
   shift_n=0
 
   # If there is a filter function and it is not getting skipped, then run it.
-  if [ ! $skip_filter ] && [ -n "$filter_func" ] &&
+  if [ $skip_filter -ne 0 ] && [ -n "$filter_func" ] &&
        command -v "$filter_func" >/dev/null 2>&1; then
      $filter_func "$@"
      shift_n=$?
@@ -1928,6 +2023,9 @@ _junonia_exec () {
 # anything other than 0.
 junonia_init
 
+# If the program we are running is called 'junonia', then the base program /
+# this library is being run with just the meta-commands. Yay! Time to run and
+# probably go get some plugins!
 if [ "$JUNONIA_NAME" = "junonia" ]; then
   junonia_run "$@"
 fi
