@@ -854,6 +854,7 @@ _junonia_md2help () {
 _junonia_cmds='  help
   config
   cache
+    -clear
   plugin
     list
     search
@@ -934,6 +935,12 @@ generate or clear meta-information cache
 ### Description
 
 Information that needs to be generated to parse arguments and display help can be cached in the user config directory and used instead.
+
+### Options
+
+* \`-clear\`
+
+Remove the cache directory.
 
 EOF
 }
@@ -1196,7 +1203,15 @@ _junonia_config () {
 }
 
 _junonia_cache () {
-  echo cache
+  if [ $1 ]; then
+    if [ -n "$JUNONIA_CONFIGDIR" ] &&
+       [ -d "$JUNONIA_CONFIGDIR/cache" ]; then
+      if ! rm -rf "$JUNONIA_CONFIGDIR/cache"; then
+        echoerr "failed to remove cache directory $JUNONIA_CONFIGDIR/cache"
+        return 1
+      fi
+    fi
+  fi
 }
 
 _junonia_plugin () {
