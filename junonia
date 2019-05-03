@@ -656,36 +656,47 @@ _junonia_md2spec () {
     # * `-option=bool_default`
     # * `-option VAL`
     # * `-option VAL=default`
+    # * `-o, -option VAL`
+    # * `-o, -option VAL=default`
     # * `-option VAL1 [-option VAL2 ...]`
-    # * `-option NAME=VALUE [-option NAME=VALUE ...]`
     options && /^\* `-[-A-Za-z0-9]+/ {
       gsub(/^\* `|`$/, "")
 
-      if(NF > 2) {
-        # Defaults are not allowed for multi-opts
-        opts[++n_opts] = $1 " [" $2 "]"
+      opt = ""
+      while(match($0, /^-[-_A-Za-z0-9]+/)) {
+        opt = opt substr($0, RSTART, RLENGTH) ","
+        $0 = substr($0, RLENGTH + 1)
+        sub(/^ *, */, "")
+      }
+      opt = substr(opt, 1, length(opt) - 1)
+
+      sub(/^ */, "")
+      if(substr($0, 1, 1) == "=") {
+        # Boolean with default
+        opts[++n_opts] = opt "=" substr($0, 2)
       } else {
-        split($1, a, "=")
-        opt = a[1]
-        bool_default = a[2]
+        split($0, a, "=")
+        meta = a[1]
+        opt_default = a[2]
 
-        if(bool_default) {
-          opts[++n_opts] = opt "=" bool_default
-        } else {
-          sub("^ *" opt " *", "")
-          split($0, a, "=")
-          meta = a[1]
-          opt_default = a[2]
-
-          if(meta) {
-            if(opt_default) {
-              opts[++n_opts] = opt " " meta "=" opt_default
+        if(meta) {
+          # Option
+          if(opt_default) {
+            # Option with default
+            opts[++n_opts] = opt " " meta "=" opt_default
+          } else {
+            # Option without default
+            if($2) {
+              # More items after meta variable; multi-option
+              opts[++n_opts] = opt " [" $1 "]"
             } else {
+              # Only meta variable; option without default
               opts[++n_opts] = opt " " meta
             }
-          } else {
-            opts[++n_opts] = opt
           }
+        } else {
+          # Boolean with no default
+          opts[++n_opts] = opt
         }
       }
     }
@@ -724,6 +735,7 @@ _junonia_md2help () {
     # ## `command subcommand`
     /^## / {
       gsub(/^## `|`$/, "")
+      if(h2) { h2++ }
     }
 
     $0 ~ cmd_re {
@@ -1105,7 +1117,7 @@ EOF
 
 _junonia_version_md () {
 cat << EOF
-## \`$JUNONIA_NAME version\`
+## \`$JUNONIA_NAME version, -v, -version, --version\`
 
 display program version
 
@@ -1134,7 +1146,7 @@ _junonia_plugin_install_md
 _junonia_plugin_uninstall_md
 _junonia_plugin_upgrade_md
 _junonia_plugin_update_md
-_junonia_version
+_junonia_version_md
 }
 
 junonia () {
@@ -1154,6 +1166,11 @@ _junonia_help () {
   helpfunc="$1"
   shift
 
+  if [ -f "$JUNONIA_CACHEDIR/help/$helpfunc" ]; then
+    cat "$JUNONIA_CACHEDIR/help/$helpfunc"
+    return 0
+  fi
+
   cmd="$(echo $helpfunc | sed 's/_/ /g;s/^ *//;s/ *$//')"
 
   if helpfunc=$(_junonia_normalize_func $helpfunc); then
@@ -1163,35 +1180,26 @@ _junonia_help () {
 
   case "$spec_src_type" in
     dir)
-      if [ -f "$md/$helpfunc.md" ]; then
-        {
-          cat "$md/$helpfunc.md"
-          find -E "$md" -type f -regex "$md/$helpfunc"'_[^_]+\.md' \
-             -exec cat {} \;
-          _junonia_mds
-        } | _junonia_md2help "$cmd"
-      else
-        if command -v $helpfunc >/dev/null 2>&1; then
-          echoerr "help not found for command: $cmd"
-        else
-          echoerr "command not found: $cmd"
-        fi
-      fi
-      return 0
+      mds="$(find "$md" -type f -name '*.md' -exec cat {} \;
+        _junonia_mds)"
+      helptext="$({ echo "$mds"; _junonia_plugin_docs; } | \
+                  _junonia_md2help "$cmd")"
       ;;
     file)
-      cat "$md" | _junonia_md2help "$cmd"
-      return 0
+      helptext="$({ cat "$md"; _junonia_plugin_docs; } | \
+                  _junonia_md2help "$cmd")"
       ;;
     md_string)
-      echo "$md" | _junonia_md2help "$cmd"
-      return 0
+      helptext="$({ echo "$md"; _junonia_plugin_docs; } | \
+                  _junonia_md2help "$cmd")"
       ;;
     spec_string)
-      echo "$spec" | awk '{sub(/^# /, ""); print}'
-      return 0
+      helptext="$(echo "$spec" | awk '{sub(/^# /, ""); print}')"
       ;;
   esac
+
+  echo "$helptext"
+  _junonia_cache_file "help/$helpfunc" "$helptext"
 }
 
 _junonia_config () {
@@ -1203,13 +1211,31 @@ _junonia_config () {
 }
 
 _junonia_cache () {
-  if [ $1 ]; then
+  clear=$1
+
+  echo "cache directory: $JUNONIA_CACHEDIR"
+
+  if [ "$JUNONIA_CACHE" != 0 ]; then
+    echo "caching is enabled"
+  else
+    echo "caching is disabled"
+  fi
+
+  if [ $clear ]; then
     if [ -n "$JUNONIA_CONFIGDIR" ] &&
        [ -d "$JUNONIA_CONFIGDIR/cache" ]; then
-      if ! rm -rf "$JUNONIA_CONFIGDIR/cache"; then
+      if rm -rf "$JUNONIA_CONFIGDIR/cache"; then
+        echo "cache cleared"
+      else
         echoerr "failed to remove cache directory $JUNONIA_CONFIGDIR/cache"
         return 1
       fi
+    fi
+  else
+    if [ -d "JUNONIA_CACHEDIR" ]; then
+      echo "cached files:"
+      cd "$JUNONIA_CACHEDIR"
+      find . -type f | cut -c 3-
     fi
   fi
 }
@@ -1236,27 +1262,133 @@ _junonia_plugin_list () {
 }
 
 _junonia_plugin_search () {
-  echo plugin search
+  term="$1"
+
+  if [ -z "$term" ]; then
+    echoerr "a search term is required"
+  fi
+
+  if ! reg="$(_junonia_get_registry)"; then
+    echoerr "registry not available"
+    return 1
+  fi
+
+  awk_prog='
+    $0 ~ s      { m     = 1  }
+    NR % 3 == 1 { info  = $0 }
+    NR % 3 == 2 { descr = $0 }
+    NR % 3 == 0 {
+      if(m) {
+        print info
+        print descr
+      }
+      m = 0
+    }
+  '
+  echo "$reg" | awk -v s="$term" "$awk_prog"
 }
 
 _junonia_plugin_info () {
-  echo plugin info
+  plugin_name="$1"
+
+  if ! reg="$(_junonia_get_registry)"; then
+    echoerr "registry not available"
+    return 1
+  fi
+
+  awk_prog='
+    NR % 3 == 1 {
+      info  = $0
+      n = split($1, namea, "/")
+    }
+    NR % 3 == 2 {
+      if(namea[2] == name || namea[3] == name ||
+         namea[2] "/" namea[3] == name) {
+        print info
+        print $0
+        print ""
+      }
+    }
+  '
+  echo "$reg" | awk -v name="$plugin_name" "$awk_prog"
 }
 
 _junonia_plugin_install () {
-  echo plugin install
+  plugin_name="$1"
+
+  if ! command -v git >/dev/null 2>&1; then
+    echoerr "git is required for installs (currently)"
+    return 1
+  fi
+
+  if ! reg="$(_junonia_get_registry)"; then
+    echoerr "registry not available"
+    return 1
+  fi
+
+  awk_prog='
+    NR % 3 == 1 {
+      n = split($1, namea, "/")
+      if(namea[2] "/" namea[3] == name) {
+        print $1
+        exit
+      }
+    }
+  '
+
+  repo="$(echo "$reg" | awk -v name="$plugin_name" "$awk_prog")"
+  plugindir="$JUNONIA_CONFIGDIR/plugins/$repo"
+
+  mkdir -p "$plugindir"
+  cd "$plugindir"
+  git clone "https://$repo.git" .
+
+  echo "installed $plugin_name to:"
+  echo "$plugindir"
 }
 
 _junonia_plugin_uninstall () {
-  echo plugin uninstall
+  plugin_name="$1"
+  plugindir="$JUNONIA_CONFIGDIR/plugins/github.com/$name"
+
+  if ! echo "$plugin_name" | awk -F '/' 'NF == 2 { exit 0 } { exit 1 }'; then
+    echoerr "plugin name should be of the form org/repo"
+    return 1
+  fi
+
+  if echo "$plugindir" | grep -Eq '\.\.'; then
+    echoerr "plugin path cannot contain relative path entries '..'"
+    return 1
+  fi
+
+  if [ -d "$plugindir" ]; then
+    cd "$JUNONIA_CONFIGDIR/plugins/github.com"
+    rm -rf "$name"
+  fi
 }
 
 _junonia_plugin_upgrade () {
-  echo plugin upgrade
+  plugin_name="$1"
+  plugindir="$JUNONIA_CONFIGDIR/plugins/github.com/$name"
+
+  if ! echo "$plugin_name" | awk -F '/' 'NF == 2 { exit 0 } { exit 1 }'; then
+    echoerr "plugin name should be of the form org/repo"
+    return 1
+  fi
+
+  if [ -d "$plugindir" ]; then
+    cd "$(dirname "$plugindir")"
+    git pull
+  fi
 }
 
 _junonia_plugin_update () {
-  echo plugin update
+  reg_file="$JUNONIA_CACHEDIR/${JUNONIA_NAME}_registry"
+  if [ -f "$reg_file" ]; then
+    rm -f "$reg_file"
+  fi
+
+  _junonia_get_registry >/dev/null
 }
 
 _junonia_version () {
@@ -1267,11 +1399,7 @@ _junonia_version () {
   fi
 
   if [ -n "$1" ]; then
-    if [ -n "$JUNONIA_VERSION" ]; then
-      ver="$ver (junonia $JUNONIA_VERSION)"
-    else
-      ver="$ver (junonia unversioned)"
-    fi
+    ver="$ver (junonia $JUNONIA_VERSION)"
   fi
 
   echo "$ver"
@@ -1304,6 +1432,89 @@ _junonia_normalize_func () {
   echo "$1"
   return 1
 }
+
+_junonia_cache_file () {
+  cachepath="$1"
+  contents="$2"
+
+  if [ "$JUNONIA_CACHE" != 0 ]; then
+    d="$(dirname "$cachepath")"
+    if [ ! -d "$JUNONIA_CACHEDIR/$d" ]; then
+      mkdir -p "$JUNONIA_CACHEDIR/$d"
+    fi
+
+    echo "$contents" > "$JUNONIA_CACHEDIR/$cachepath"
+  fi
+}
+
+_junonia_get_registry () {
+  reg_file="$JUNONIA_CACHEDIR/${JUNONIA_NAME}_registry"
+
+  if [ -f "$reg_file" ]; then
+    cat "$reg_file"
+  else
+    if ! command -v curl >/dev/null 2>&1; then
+      echoerr "unable to get plugin registry: curl not found"
+      return 1
+    fi
+
+    if ! command -v ${JUNONIA_NAME}_registry; then
+      echoerr "unable to get plugin registry: no registry info available"
+      return 1
+    fi
+
+    reg="$(curl -s ${JUNONIA_NAME}_registry)"
+    _junonia_cache_file "$reg_file" "$reg"
+  fi
+}
+
+_junonia_plugin_docs () {
+  for plugin in $(_junonia_plugin_list); do
+    name="$(basename "$plugin")"
+    plugindir="$JUNONIA_CONFIGDIR/plugins/$plugin"
+    for docdir in "$plugindir/$name/usr/share/doc/$name" \
+                  "$plugindir/docs" \
+                  "$plugindir/doc" \
+                  "$plugindir"; do
+      if ls "$docdir"/*.md >/dev/null 2>&1; then
+        cat "$docdir"/*.md
+      fi
+    done
+  done
+}
+
+_junonia_func_search () {
+  searchpath="$1"
+  i=0
+
+  while ! command -v $func >/dev/null 2>&1; do
+    case $i in
+      0) p="$searchpath/$func.sh";;
+      1) p="$searchpath/cmd/$func.sh";;
+      2) p="$searchpath/cmds/$func.sh";;
+      3) p="$searchpath/lib/$JUNONIA_NAME/$func.sh";;
+      4) p="$searchpath/lib/$JUNONIA_NAME/cmd/$func.sh";;
+      5) p="$searchpath/lib/$JUNONIA_NAME/cmds/$func.sh";;
+      6) p="$searchpath/lib/$JUNONIA_NAME/command/$func.sh";;
+      7) p="$searchpath/lib/$JUNONIA_NAME/commands/$func.sh";;
+      *) return 1
+    esac
+
+    i=$(( $i + 1 ))
+
+    # Found the function file, source it.
+    if [ -f "$p" ]; then
+      . "$p"
+
+      # Only stop the search if the sourced file actually contained the
+      # function.
+      if command -v $func >/dev/null 2>&1; then
+        return 0
+      fi
+    fi
+  done
+}
+
 
 ###
 ### Execution environment setup and management
@@ -1342,6 +1553,8 @@ junonia_init () {
   # JUNONIA_CAPNAME    Name in all caps
   # JUNONIA_CONFIG     Path to script rc file
   # JUNONIA_CONFIGDIR  Path to config directory
+  # JUNONIA_CACHEDIR   Path to cache directory
+  # JUNONIA_CACHE      Flag to optionally disable (0) caching
   # JUNONIA_INIT       Init guard to prevent attempted re-inits
   # JUNONIA_FS         Information separators
   # JUNONIA_GS
@@ -1363,6 +1576,8 @@ junonia_init () {
   JUNONIA_WRAP="${JUNONIA_WRAP:-78}"
   JUNONIA_COL1="${JUNONIA_COL1:-18}"
   JUNONIA_COL2="${JUNONIA_COL2:-60}"
+
+  readonly JUNONIA_VERSION="${JUNONIA_VERSION:-unversioned}"
 
   # Information Separator control characters (IS4 - IS1)
   readonly JUNONIA_FS="" # File   Separator (FS / IS4 / dec 28)
@@ -1412,13 +1627,19 @@ junonia_init () {
 
   # Path to the config dir and file
   readonly _JUNONIA_CONFIGDIR_DEF="$HOME/.$JUNONIA_NAME"
-  readonly _JUNONIA_CONFIG_DEF="$_JUNONIA_CONFIGDIR_DEF/${JUNONIA_NAME}rc.sh"
+  readonly _JUNONIA_CONFIG_DEF="$_JUNONIA_CONFIGDIR_DEF/${JUNONIA_NAME}rc"
+  readonly _JUNONIA_CACHEDIR_DEF="$_JUNONIA_CONFIGDIR_DEF/cache"
 
   readonly JUNONIA_CONFIGDIR="${JUNONIA_CONFIGDIR:-"$_JUNONIA_CONFIGDIR_DEF"}"
   readonly JUNONIA_CONFIG="${JUNONIA_CONFIG:-"$_JUNONIA_CONFIG_DEF"}"
+  readonly JUNONIA_CACHEDIR="${JUNONIA_CACHEDIR:-"$_JUNONIA_CACHEDIR_DEF"}"
 
   export   JUNONIA_CONFIGDIR
   export   JUNONIA_CONFIG
+  export   JUNONIA_CACHEDIR
+
+  # Enable caching, but leave it available to be disabled later if need be.
+  export JUNONIA_CACHE="${JUNONIA_CACHE:-1}"
 
   # Configure if debug messages will be printed.
   junonia_setdebug "$JUNONIA_DEBUG"
@@ -1687,7 +1908,16 @@ _junonia_set_args () {
   # Spec entry starts with a "-", which indicates an option.
   indented && substr($1, 0, 1) == "-" {
     split($1, a, "=")
-    opt = a[1]
+    aliases = a[1]
+    n_aliases = split(aliases, aliasa, ",")
+
+    opt = ""
+    # Go through all aliases and see if this is an option in the command line.
+    for(i=1; i<=n_aliases; i++) {
+      if(aliasa[i] in opts) {
+        opt = aliasa[i]
+      }
+    }
 
     if(config) {
       booldef = ""
@@ -1695,7 +1925,7 @@ _junonia_set_args () {
       booldef = a[2]
     }
 
-    if(opt in opts) {
+    if(opt) {
       # This option from the spec is one we have in the program arguments.
 
       if(config) {
@@ -1740,6 +1970,10 @@ _junonia_set_args () {
       }
 
     } else {
+      # None of the option aliases were given on the command line. Try to set
+      # the values from other sources. The preferred option name for
+      # environment variables and config file entries is the last given option.
+      opt = aliasa[n_aliases]
       if(! config) {
         envopt = envname "_" substr(opt, 2)
         gsub(/-/, "_", envopt)
@@ -1792,20 +2026,26 @@ _junonia_set_args () {
     next
   }
 
-  # Spec entry does not start with hyphen and is not all caps, which indicates
-  # this is a subcommand. Start or add to the function name which will be
-  # executed and increment to the next positional value.
-  indented && $1 == pos[p] {
-    if(func_name) {
-      envname = envname "_" $1
-      func_name = func_name "_" $1
-    } else {
-      envname = toupper($1)
-      func_name = $1
+  indented {
+    n_aliases = split($0, subcmd_aliases, / *, */)
+    for(i=1; i<=n_aliases; i++) {
+      sub(/^ */, "", subcmd_aliases[i])
+      if(subcmd_aliases[i] == pos[p]) {
+        # Spec entry does not start with hyphen and is not all caps, which indicates
+        # this is a subcommand. Start or add to the function name which will be
+        # executed and increment to the next positional value.
+        if(func_name) {
+          envname = envname "_" subcmd_aliases[1]
+          func_name = func_name "_" subcmd_aliases[1]
+        } else {
+          envname = toupper(subcmd_aliases[1])
+          func_name = subcmd_aliases[1]
+        }
+        indents = indents "  "
+        p++
+        next
+      }
     }
-    indents = indents "  "
-    p++
-    next
   }
 
   END {
@@ -1849,7 +2089,6 @@ _junonia_set_args () {
 junonia_run () {
   # This file is the program being run, which is a special case.
   if [ "$JUNONIA_NAME" = junonia ]; then
-    #junonia_runspec junonia "$@"
     junonia_runmd "$(_junonia_md) $(_junonia_mds)" "$@"
     return $?
   fi
@@ -1933,20 +2172,27 @@ junonia_runmd_filtered () {
   md="$1"
   shift
 
-  spec=
+  spec_cache="$JUNONIA_CACHEDIR/spec"
+  if [ -f "$spec_cache" ]; then
+    spec="$(cat "$spec_cache")"
+    ret=$?
+  else
+    spec=
+  fi
+
   ret=1
   spec_src_type=
   if [ -d "$md" ]; then
     readonly JUNONIA_DOCDIR="$md"
-    spec="$(_junonia_md2spec "$md"/*.md)"
+    spec="${spec:-"$(_junonia_plugin_docs | _junonia_md2spec "$md"/*.md -)"}"
     ret=$?
     spec_src_type="dir"
   elif [ -f "$md" ]; then
-    spec="$(_junonia_md2spec "$md")"
+    spec="${spec:-"$(_junonia_plugin_docs | _junonia_md2spec "$md" -)"}"
     ret=$?
     spec_src_type="file"
   elif [ "$(echo "$md" | wc -l)" -gt 1 ]; then
-    spec="$(echo "$md" | _junonia_md2spec -)"
+    spec="${spec:-"$({echo "$md"; _junonia_plugin_docs} | _junonia_md2spec -)"}"
     ret=$?
     spec_src_type="md_string"
   fi
@@ -1994,30 +2240,35 @@ _junonia_run_final () {
   spec="$1"
   shift
 
-  # Insert the standard meta parameters.
-  spec="$(
-    echo "$spec" | awk -v s="$_junonia_cmds" '
-      /^[a-z]/ {
-        insert_meta = 1
-        print
-        next
-      }
-      insert_meta && /^  [a-z]/ {
-        print s
-        print
-        insert_meta = 0
-        next
-      }
-      {
-        print
-      }
-      END {
-        if(insert_meta) {
-          print s
+  spec_cache="$JUNONIA_CACHEDIR/spec"
+  if [ ! -f "$spec_cache" ]; then
+    # Insert the standard meta parameters.
+    spec="$(
+      echo "$spec" | awk -v s="$_junonia_cmds" '
+        /^[a-z]/ {
+          insert_meta = 1
+          print
+          next
         }
-      }
-    '
-  )"
+        insert_meta && /^  [a-z]/ {
+          print s
+          print
+          insert_meta = 0
+          next
+        }
+        {
+          print
+        }
+        END {
+          if(insert_meta) {
+            print s
+          }
+        }
+      '
+    )"
+
+    _junonia_cache_file spec "$spec"
+  fi
 
   # Retrieve the argument values in the order defined in the spec.
   if ! arg_vals="$(_junonia_set_args "$md" "$spec_src_type" "$spec" \
@@ -2095,38 +2346,44 @@ _junonia_exec () {
     i=$(( $i + 1 ))
   done
 
+  if [ $func = "$JUNONIA_NAME" ]; then
+    func_location="$(command -v $func)"
+    if [ "$(echo "$func_location" | cut -c 1)" = / ]; then
+      # Shell command named the same as the top level script, so return 0. This
+      # assumes it is this script, which is a safe assumption because this
+      # script will just continue executing.
+      return 0
+    fi
+
+    if [ -z "$func_location" ]; then
+      # Command named the same as the top level script is not found. Return 0
+      # so that the top level script can continue.
+      return 0
+    fi
+
+    # If the func location resolves like a shell function, then fall through so
+    # it gets called.
+  fi
+
+
   # If the command hasn't already been sourced or defined somewhere, try to
   # discover it by checking for files corresponding to the function name.
   i=0
-  while ! command -v $func >/dev/null 2>&1; do
-    case $i in
-      0) p="$JUNONIA_PATH/$func.sh";;
-      1) p="$JUNONIA_PATH/cmd/$func.sh";;
-      2) p="$JUNONIA_PATH/cmds/$func.sh";;
-      3) p="$JUNONIA_PATH/lib/$JUNONIA_NAME/$func.sh";;
-      4) p="$JUNONIA_PATH/lib/$JUNONIA_NAME/cmd/$func.sh";;
-      5) p="$JUNONIA_PATH/lib/$JUNONIA_NAME/cmds/$func.sh";;
-      6) p="$JUNONIA_PATH/lib/$JUNONIA_NAME/command/$func.sh";;
-      7) p="$JUNONIA_PATH/lib/$JUNONIA_NAME/commands/$func.sh";;
-      *)
-        echoerr "command not found: $(echo $func | sed 's/_/ /g')"
-        return 1
-        ;;
-    esac
 
-    i=$(( $i + 1 ))
-
-    # Found the function file, source it.
-    if [ -f "$p" ]; then
-      . "$p"
-
-      # Only stop the search if the sourced file actually contained the
-      # function.
-      if command -v $func >/dev/null 2>&1; then
-        break
-      fi
+  if ! command -v $func >/dev/null 2>&1; then
+    if ! _junonia_func_search "$JUNONIA_PATH"; then
+      for plugin in $(_junonia_plugin_list); do
+        name="$(basename "$plugin")"
+        plugindir="$JUNONIA_CONFIGDIR/plugins/$plugin"
+        _junonia_func_search "$plugindir"
+      done
     fi
-  done
+  fi
+
+  if ! command -v $func >/dev/null 2>&1; then
+    echoerr "command not found: $(echo $func | sed 's/_/ /g')"
+    return 1
+  fi
 
   # A function file was found and sourced, and the function was found. Execute
   # the function.
