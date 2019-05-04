@@ -461,6 +461,15 @@ junonia_ncol () {
   fi
 }
 
+junonia_require_cmds () {
+  for required_cmd in $1; do
+    if [ -z "$(command -v $required_cmd)" ]; then
+      echoerr "$required_cmd must be installed"
+      return 1
+    fi
+  done
+}
+
 
 ###
 ### Configuration file management
@@ -746,8 +755,8 @@ _junonia_md2help () {
     }
 
     $0 ~ subcmd_re {
-      h2++
-      if(h2 == 2) {
+      n_subcmds++
+      if(n_subcmds == 1) {
         txt = txt "SUBCOMMANDS\n"
       }
 
