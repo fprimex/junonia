@@ -15,4 +15,7 @@ junonia_bootstrap () {
   done
   JUNONIA_PATH="$(cd "$(dirname "$JUNONIA_TARGET")" && pwd -P)"
   JUNONIA_TARGET="$JUNONIA_PATH/$(basename $JUNONIA_TARGET)"
+  if [ "$(basename "$JUNONIA_PATH")" = bin ]; then
+    JUNONIA_PATH="$(dirname "$JUNONIA_PATH")"
+  fi
 }

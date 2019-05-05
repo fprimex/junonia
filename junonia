@@ -100,6 +100,14 @@ junonia_bootstrap () {
   # TARGET /home/user/code/project/name/bin/script
   JUNONIA_PATH="$(cd "$(dirname "$JUNONIA_TARGET")" && pwd -P)"
   JUNONIA_TARGET="$JUNONIA_PATH/$(basename $JUNONIA_TARGET)"
+
+  # If the script is in a bin directory, then set the path one directory back.
+  # /some/path/to/the/actual # (no bin/script))
+  # or
+  # /home/user/code/project/name # (bin/script))
+  if [ "$(basename "$JUNONIA_PATH")" = bin ]; then
+    JUNONIA_PATH="$(dirname "$JUNONIA_PATH")"
+  fi
 }
 
 
@@ -727,6 +735,7 @@ _junonia_md2help () {
       subcmd_re = "^" cmd " [-_A-Za-z0-9]+$"
       h2 = 0
       txt = "NAME\n"
+      subcmd_txt = "SUBCOMMANDS\n"
     }
 
     # When encountering a header, leave any header we were in.
@@ -758,10 +767,6 @@ _junonia_md2help () {
 
     $0 ~ subcmd_re {
       n_subcmds++
-      if(n_subcmds == 1) {
-        txt = txt "SUBCOMMANDS\n"
-      }
-
       subcmd = $NF
       next
     }
@@ -772,13 +777,13 @@ _junonia_md2help () {
     }
 
     subcmd && /^#/ {
-      txt = txt "  " subcmd "\n"
+      subcmd_txt = subcmd_txt "  " subcmd "\n"
       subcmd = ""
       next
     }
 
     subcmd && ! /^$/ {
-      txt = txt twocol(subcmd, $0, col1 - 3, col2, " ", "  ") "\n"
+      subcmd_txt = subcmd_txt twocol(subcmd, $0, col1 - 3, col2, " ", "  ") "\n"
       subcmd = ""
       next
     }
@@ -853,6 +858,9 @@ _junonia_md2help () {
     END {
       sub(/\n*$/, "", txt)
       print txt
+      if(n_subcmds > 0) {
+        print "\n" subcmd_txt
+      }
     }
   '
 
@@ -1191,8 +1199,8 @@ _junonia_help () {
 
   case "$spec_src_type" in
     dir)
-      mds="$(find "$md" -type f -name '*.md' -exec cat {} \;
-        _junonia_mds)"
+      mds="$(for f in "$md"/*.md; do cat "$f"; done;
+             _junonia_mds)"
       helptext="$({ echo "$mds"; _junonia_plugin_docs; } | \
                   _junonia_md2help "$cmd")"
       ;;
@@ -1623,11 +1631,11 @@ junonia_init () {
     # /some/path/to/the/actual
     # /home/user/code/project/name/bin
     JUNONIA_PATH="$(cd "$(dirname "$JUNONIA_TARGET")" && pwd -P)"
-  fi
 
-  # If the script is in a bin directory, then set the path one directory back.
-  if [ "$(basename "$JUNONIA_PATH")" = bin ]; then
-    JUNONIA_PATH="$(dirname "$JUNONIA_PATH")"
+    # If the script is in a bin directory, then set the path one directory back.
+    if [ "$(basename "$JUNONIA_PATH")" = bin ]; then
+      JUNONIA_PATH="$(dirname "$JUNONIA_PATH")"
+    fi
   fi
 
   readonly JUNONIA_PATH
