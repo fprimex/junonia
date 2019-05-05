@@ -98,8 +98,8 @@ junonia_bootstrap () {
   # Set absolute paths for TARGET and PATH
   # PATH   /home/user/code/project/name/bin
   # TARGET /home/user/code/project/name/bin/script
-  readonly JUNONIA_PATH="$(cd "$(dirname "$JUNONIA_TARGET")" && pwd -P)"
-  readonly JUNONIA_TARGET="$JUNONIA_PATH/$(basename $JUNONIA_TARGET)"
+  JUNONIA_PATH="$(cd "$(dirname "$JUNONIA_TARGET")" && pwd -P)"
+  JUNONIA_TARGET="$JUNONIA_PATH/$(basename $JUNONIA_TARGET)"
 }
 
 
@@ -117,6 +117,8 @@ echoerr () { echoerr_raw "[ERROR] $@"; }
 echodebug_raw () { printf '%s\n' "$@" 1>&3; }
 echodebug () { echodebug_raw "[DEBUG] $@"; }
 
+# Convenience function for using a verbose level echo
+echov () { [ -n "$verbose" ] && printf '%s\n' "$@"; }
 
 ###
 ### AWK utility functions
@@ -1623,6 +1625,11 @@ junonia_init () {
     JUNONIA_PATH="$(cd "$(dirname "$JUNONIA_TARGET")" && pwd -P)"
   fi
 
+  # If the script is in a bin directory, then set the path one directory back.
+  if [ "$(basename "$JUNONIA_PATH")" = bin ]; then
+    JUNONIA_PATH="$(dirname "$JUNONIA_PATH")"
+  fi
+
   readonly JUNONIA_PATH
   export   JUNONIA_PATH
 
@@ -2040,9 +2047,9 @@ _junonia_set_args () {
     for(i=1; i<=n_aliases; i++) {
       sub(/^ */, "", subcmd_aliases[i])
       if(subcmd_aliases[i] == pos[p]) {
-        # Spec entry does not start with hyphen and is not all caps, which indicates
-        # this is a subcommand. Start or add to the function name which will be
-        # executed and increment to the next positional value.
+        # Spec entry does not start with hyphen and is not all caps, which
+        # indicates this is a subcommand. Start or add to the function name
+        # which will be executed and increment to the next positional value.
         if(func_name) {
           envname = envname "_" subcmd_aliases[1]
           func_name = func_name "_" subcmd_aliases[1]
@@ -2058,7 +2065,7 @@ _junonia_set_args () {
   }
 
   END {
-    # There was an error and we should just exit.
+    # There was an error or early success and we should just exit.
     if(e != "") {
       exit e
     }
@@ -2111,7 +2118,7 @@ junonia_run () {
   fi
 
   # Look in some particular paths for program markdown documentation.
-  for docdir in "$JUNONIA_PATH/../usr/share/doc/$JUNONIA_NAME" \
+  for docdir in "$JUNONIA_PATH/usr/share/doc/$JUNONIA_NAME" \
                 "$JUNONIA_PATH/docs" \
                 "$JUNONIA_PATH/doc"; do
     if [ -d "$docdir" ] && [ -f "$docdir/$JUNONIA_NAME.md" ]; then
@@ -2374,6 +2381,8 @@ _junonia_exec () {
     # it gets called.
   fi
 
+  cmd="$(echo $func | sed 's/_/ /g')"
+  func="$(echo $func | sed 's/-/_/g')"
 
   # If the command hasn't already been sourced or defined somewhere, try to
   # discover it by checking for files corresponding to the function name.
@@ -2390,12 +2399,14 @@ _junonia_exec () {
   fi
 
   if ! command -v $func >/dev/null 2>&1; then
-    echoerr "command not found: $(echo $func | sed 's/_/ /g')"
+    echoerr "command not found: $cmd"
     return 1
   fi
 
   # A function file was found and sourced, and the function was found. Execute
   # the function.
+  echodebug "function: $func"
+  echodebug "args: $*"
   $func "$@"
 }
 
