@@ -730,21 +730,24 @@ _junonia_md2spec () {
 _junonia_md2help () {
   awk_prog='
     BEGIN {
+      # Split the supplied command into an array of parts
+      n = split(cmd, cmda)
+      i = 1
+
       col1_indent = sprintf("%" col1 "s", "")
-      cmd_re = "^" cmd "$"
-      subcmd_re = "^" cmd " [-_A-Za-z0-9]+$"
-      h2 = 0
       txt = "NAME\n"
       subcmd_txt = "SUBCOMMANDS\n"
     }
 
     # When encountering a header, leave any header we were in.
     /^#/ {
-      if(intro + synopsis + description + positional) {
+      # When leaving a header and processing docs, add a separating newline
+      # (e.g. between the last line of description and start of OPTIONS)
+      if(cmd_doc_start) {
         txt = txt "\n"
       }
 
-      intro = 0
+      title = 0
       synopsis = 0
       description = 0
       positional = 0
@@ -755,33 +758,68 @@ _junonia_md2help () {
     # ## `command subcommand`
     /^## / {
       gsub(/^## `|`$/, "")
-      if(h2) { h2++ }
+      title = 1
+      if(cmd_doc_start) {
+        cmd_doc_end = 1
+      }
     }
 
-    $0 ~ cmd_re {
-      h2++
-      txt = txt "  " $0 "\n"
-      intro = 1
+    # Find the topmost level command title to bootstrap subcommand location.
+    title && i == 1 && $0 == cmda[1] {
+      cmd_part = cmda[1]
+      i++
       next
     }
 
-    $0 ~ subcmd_re {
-      n_subcmds++
-      subcmd = $NF
+    # Keep moving until the top level command is located
+    i == 1 {
       next
     }
 
-    intro && h2 == 1 && ! /^$/ {
+    # At this point i > 1
+
+    # Keep looking at titles until the whole command is located
+    title && i <= n && $0 ~ "^" cmd_part " [-_A-Za-z0-9, ]*" cmda[i] "(,|$)" {
+      cmd_part = $0
+      sub(/,.*/, "", cmd_part)
+
+      if(i == n) {
+        txt = txt "  " cmd_part "\n"
+        subcmd_re = "^" cmd_part " [-_A-Za-z0-9]+(,|$)"
+      }
+      i++
+      next
+    }
+
+    # Keep moving until the whole command is located.
+    i <= n {
+      next
+    }
+
+    # In the command description, so add it to the name line.
+    title && ! cmd_doc_end && ! /^$/ {
       txt = substr(txt, 1, length(txt) - 1) " -- " $0 "\n"
+      cmd_doc_start = 1
       next
     }
 
+    # Collect this subcommand. If it has aliases, extract the primary command.
+    title && $0 ~ subcmd_re {
+      n_subcmds++
+      split($0, subcmda, ",")
+      pn = split(subcmda[1], primary_subcmd)
+      subcmd = primary_subcmd[pn]
+      next
+    }
+
+    # Leaving this subcommand title without a description
     subcmd && /^#/ {
       subcmd_txt = subcmd_txt "  " subcmd "\n"
       subcmd = ""
       next
     }
 
+    # Subcommand title block with a description
     subcmd && ! /^$/ {
       subcmd_txt = subcmd_txt twocol(subcmd, $0, col1 - 3, col2, " ", "  ") "\n"
       subcmd = ""
@@ -789,8 +827,9 @@ _junonia_md2help () {
     }
 
     # Not seen the right command or have processed it already, so none of the
-    # below processing should be done.
-    h2 != 1 {
+    # below processing should be done. All that remains is collecting
+    # subcommands.
+    ! cmd_doc_start || cmd_doc_end {
       next
     }
 
@@ -856,6 +895,11 @@ _junonia_md2help () {
     }
 
     END {
+      if(txt == "NAME\n") {
+        echoerr("help documentation failed to be generated")
+        exit 1
+      }
+
       sub(/\n*$/, "", txt)
       print txt
       if(n_subcmds > 0) {
