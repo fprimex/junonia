@@ -775,6 +775,8 @@ _junonia_md2help () {
     # Find the topmost level command title to bootstrap subcommand location.
     title && i == 1 && $0 == cmda[1] {
       cmd_part = cmda[1]
+      txt = txt "  " cmd_part "\n"
+      subcmd_re = "^" cmd_part " [-_A-Za-z0-9]+(,|$)"
       i++
       next
     }
@@ -2392,6 +2394,8 @@ _junonia_exec () {
     echoerr "no operation given to perform"
     return 1
   fi
+
+  shift_n=0
 
   # Meta-commands should not be put through the user filter.
   if func="$(_junonia_normalize_func $func)"; then
