@@ -704,7 +704,7 @@ _junonia_md2spec () {
 
         if(meta) {
           # Option
-          if(opt_default) {
+          if(opt_default != "") {
             # Option with default
             opts[++n_opts] = opt " " meta "=" opt_default
           } else {
@@ -2441,14 +2441,14 @@ _junonia_exec () {
     # it gets called.
   fi
 
-  cmd="$(echo $func | sed 's/_/ /g')"
-  func="$(echo $func | sed 's/-/_/g')"
+  readonly JUNONIA_CMD="$(echo $func | sed 's/_/ /g')"
+  readonly JUNONIA_FUNC="$(echo $func | sed 's/-/_/g')"
 
   # If the command hasn't already been sourced or defined somewhere, try to
   # discover it by checking for files corresponding to the function name.
   i=0
 
-  if ! command -v $func >/dev/null 2>&1; then
+  if ! command -v $JUNONIA_FUNC >/dev/null 2>&1; then
     if ! _junonia_func_search "$JUNONIA_PATH"; then
       for plugin in $(_junonia_plugin_list); do
         name="$(basename "$plugin")"
@@ -2458,14 +2458,14 @@ _junonia_exec () {
     fi
   fi
 
-  if ! command -v $func >/dev/null 2>&1; then
-    echoerr "command not found: $cmd"
+  if ! command -v $JUNONIA_FUNC >/dev/null 2>&1; then
+    echoerr "command not found: $JUNONIA_CMD"
     return 1
   fi
 
   # A function file was found and sourced, and the function was found. Execute
   # the function.
-  echodebug "function: $func"
+  echodebug "function: $JUNONIA_FUNC"
   echodebug "args: $*"
   $func "$@"
 }
