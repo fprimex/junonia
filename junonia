@@ -565,7 +565,8 @@ junonia_update_config () {
     $0 ~ "^" varname_re && splitvar($0) == 0 && config[VARNAME] {
       # If no value was supplied, skip it, effectively removing it from
       # the config file.
-      if(! config[VARNAME]) {
+      if(! config[VARNAME] || config[VARNAME] == "\"\"") {
+        delete config[VARNAME]
         next
       }
 
@@ -609,7 +610,7 @@ junonia_update_config () {
 
 # Parse Markdown text into a program argument spec
 _junonia_md2spec () {
-  awk '
+  awk_prog='
     # Print the currently stored spec and reset for the next one.
     function spec () {
       print indent cmd
@@ -639,17 +640,20 @@ _junonia_md2spec () {
 
     # Top level "##" header
     # ## `command subcommand`
-    /^## `[-_A-Za-z0-9 ]+`/ {
+    /^## `[,-_A-Za-z0-9 ]+`/ {
       if(cmd) {
         spec()
       }
 
-      for(i=0; i<NF-2; i++) {
+      gsub(/`/, "")
+      split($0, subcmda, ",")
+      pn = split(subcmda[1], primary_subcmd)
+      cmd = primary_subcmd[pn]
+
+      indent = ""
+      for(i=0; i<pn-2; i++) {
         indent = indent "  "
       }
-
-      gsub(/`/, "")
-      cmd = $NF
     }
 
     /^### Positional parameters/ {
@@ -723,7 +727,11 @@ _junonia_md2spec () {
     END {
       spec()
     }
-  ' "$@"
+  '
+
+  awk -v wrap="$JUNONIA_WRAP" -v col1="$JUNONIA_COL1" \
+            -v col2="$JUNONIA_COL2" -v cmd="$1" \
+            "$JUNONIA_AWKS $awk_prog" "$@"
 }
 
 # Parse Markdown text into command line help
