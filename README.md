@@ -494,6 +494,21 @@ $junonia_awk_randomish_int
 "
 ```
 
+The function specs are the following:
+
+```
+echoerr(msg)
+echoerr_raw(msg)
+echodebug(msg)
+echodebug_raw(msg)
+randomish_int(seed, n)
+
+hardwrap_line(line, width, pre, float)
+hardwrap(lines, width, pre, float)
+twocol(text1, text2, col1, col2, gutter, pre, float1, float2)
+ncol(n, texts, cols, gutters, pre, floats)
+```
+
 These functions match (and are the implementations for) the shell functions. To use these AWK functions in your own AWK programs, I suggest a format such as the following:
 
 ```

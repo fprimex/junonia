@@ -369,6 +369,7 @@ junonia_awk_randomish_int='
   function randomish_int(s, n) {
     # A seed has to be given
     if(! s) {
+      print "no seed provided for generating randomish int" >"/dev/stderr"
       exit 1
     }
 
