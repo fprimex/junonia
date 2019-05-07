@@ -27,9 +27,29 @@ The junonia library also provides:
 
 If the program implementation follows the junonia conventions for project layout, then all that is required, typically, is to write Markdown, then implement each subcommand as a shell function that will receive argument values in the order defined in the Markdown, and finally `junonia_bootstrap; . $JUNONIA_PATH/path/to/junonia; junonia_run "$@"`
 
-## Quick example
+## Getting started
 
-For the Markdown `prog.md`:
+There are many different ways to use junonia to handle program configuration and execution, but for this 'getting started' section I'll assume you want to use Markdown for command and subcommand documentation, and use a directory layout that will be automatically discovered.
+
+First, choose a directory layout that will, by convention, allow junonia to automatically discover documentation and function declarations. One of the following is recommended.
+
+```
+prog/
+  prog
+  cmd/
+  doc/
+```
+
+```
+prog/
+  bin/prog
+  lib/prog/cmd/
+  usr/share/doc/prog/
+```
+
+The `prog` file will be the top level program. It must not end with `.sh`. Markdown documents go in the `doc` and `usr/share/doc/prog`  directory, and function implementations go in the `cmd` and `lib/prog/cmd` directory. Markdown documentation and functions follow a conventional format of `prog.md`, `prog_sub1.md`, `prog_sub1_sub11.md` for documenting the commands `prog`, `prog sub1`, and `prog sub1 sub11`. Similarly, function implementations are documented as `prog_sub1.sh` and `prog_sub1_sub11.sh`. The function implementation for `prog` itself should be in the `prog` top level program file.
+
+For the Markdown `prog.md` located in `doc` or `usr/share/doc/prog`:
 
 ```
 ## `prog`
@@ -49,6 +69,11 @@ Long description of `prog`.
 * `-shared-arg SHARED`
 
 This option is available to all `prog` subcommands.
+```
+
+And the Markdown `prog_sub1.md` located in `doc` or `usr/share/doc/prog`:
+
+```
 
 ## `prog sub1`
 
@@ -69,30 +94,56 @@ Description of subcommand number one.
 This is option one for subcommand one.
 ```
 
-And the program `prog`:
+And the program `prog` in the root of the project or in the `bin` directory:
 
 ```
 #!/bin/sh
 
+# Version supplied to `prog version` command. If you wish for `-v` and such to
+# also return the version, then those flags need to be implemented in the
+# `prog` documentation and command. I wanted for `-v` and so forth to be
+# available for other uses if desired.
 prog_version () {
   echo "1.0.0"
 }
 
+# What is run when 'prog' or 'prog -shared-arg foo' is executed.
 prog () {
-  echo "shared arg: $1"
-}
-
-prog_sub1 () {
-  echo "shared arg: $1"
-  echo "sub1 opt1:  $2"
+  echo "-shared-arg: $1"
 }
 
 # A copy of junonia_boostrap goes here
 # https://github.com/fprimex/junonia/blob/master/junonia_bootstrap
 
+# During development you most likely want to disable the caching of help output
+# and other items.
+JUNONIA_CACHE=0
+
+# Bootstrap resolves all symlinks and find the directory where all of the
+# program documentation and function implementations live. For both directory
+# layouts it results in the root directory. So for the first the directory
+# containing 'prog', and for the second the directory containing 'bin'.
 junonia_bootstrap
 . "$JUNONIA_PATH/some/path/to/junonia"
+
+# Resolve all arguments and execute the specified function with the set
+# configuration file values, environment variable values, and command line
+# arguments.
 junonia_run "$@"
+```
+
+And the subcommand implementation `prog_sub1.sh` in `cmd` or `lib/prog/cmd`:
+
+```
+# What is executed with the following invocations:
+# prog sub1
+# prog sub1 -shared-arg foo -sub1-opt1 bar
+# prog sub1 -sub1-opt1 bar
+
+prog_sub1 () {
+  echo "-shared-arg: $1"
+  echo "-sub1-opt1:  $2"
+}
 ```
 
 The following is now available:
@@ -149,6 +200,96 @@ sub1 opt1:  bar
 
 And much more!
 
+## Markdown notes and features
+
+* The `command` and `command subcommand` must be at the h2 level, `##`.
+* The `command` and `command subcommand` must contain the whole command, starting from the top level command. That is: `command subcommand subcommand` is correct. `subcommand subcommand` is not correct.
+* Subcommands can have aliases: `command subcommand, subcommand_alias`. The definitive name for the subcommand, for documentation and implementation, is `subcommand`.
+* Sections of the documentation can be skipped if, for example, there are no positional parameters. For the sections used, the following headers must be at the h3 level, `###`, and be exactly as follows:
+
+```
+### Synopsis
+### Description
+### Positional parameters
+### Options
+```
+
+* Positional parameters are documented as:
+
+```
+### Positional parameters
+
+* `PARAM1`
+
+The description for `PARAM1`, to be supplied as, e.g., `prog param_value ...`.
+
+* `PARAM2=param2_default
+
+The description for `PARAM2`, which has a default value if it is omitted.
+```
+
+* Positional parameter meta-variables must be in all caps.
+* All subcommands and positional parameters must come before all options.
+* Options are documented as:
+
+```
+### Options
+
+* `-option-one ONE`
+
+An option that takes an argument.
+
+* `-option-two TWO=2`
+
+An option that takes an argument and has a default value.
+
+* `-o, -option-three THREE`
+
+An option that has an alias, `-o`. The definitive name of the option is the last one given, `-option-three` in this case.
+
+* `-boolean-option-one`
+
+A flag, or boolean option. It must not have a meta-variable. All flags default to a false value. This is 0 or false at the command line, and represented as a null value in shell code (e.g. `flag=`).
+
+* `-boolean-option-two=1`
+
+A flag, or boolean option, that is defaulting to true. All booleans are normalized to where in the shell code 1 is supplied for true, and the null value, or empty string, is supplied as false.
+
+* `-multi-option ONE [-multi-option TWO ...]`
+
+This format specifies that `-multi-option` can be given more than once on the command line, and all of the values will be collected. The values are separated by `JUNONIA_US`, the unit separator, so that newlines and spaces can be preserved when iterating over the supplied values. See [Program invocation](#program-invocation) for an example of iterating over a multi-option value using `IFS` and `JUNONIA_US`.
+```
+
+* Documenting subcommands in Markdown is encouraged, but not required for functionality. During command execution, subcommands are discovered dynamically both for command execution and for online documentation.
+
+## Function notes and features
+
+* Functions implementations are searched for by the format `command_subcommand` for the invocation 'command subcommand'.
+* If the command is already present then that command is used. So, for example, all commands could be implemented in the top level program, or they could be implemented in any file or using any method as long as they are sourced or otherwise present at execution time.
+* Functions receive argument values in the order they are declared in the documentation. This includes arguments of preceding commands. So if `command` has argument `-option-one`, and `subcommand` has `-option-two`, then executing `command subcommand` will cause the `command_subcommand` function to receive the value of `-option-one` as `$1` and `-option-two` as `$2`.
+* The argument value handling implemented in junonia allows for spaces and multi-line arguments to be given and properly passed to the function. This is accomplished by separating argument values that are given with `JUNONIA_FS`, the field separator, and then passing the values with `IFS` set to `JUNONIA_FS`. This is an implementation detail, and no end-user use of `JUNONIA_FS` is needed. Just be aware that your values can contain spaces and newlines and junonia will handle this properly.
+* Multi-value options, as mentioned, will be separated with `JUNONIA_US`, the unit separator. See [Program invocation](#program-invocation) for an example of iterating over a multi-option value using `IFS` and `JUNONIA_US`.
+* It is not recommended to implement the top level function as, e.g., `prog.sh` in the commands directory. This is because when the search for the `prog` command is done, the top level script itself will be found. Instead, implement the `prog` function in the top level script and junonia will detect that it is a shell function properly.
+
+## Configuration file and environment variables
+
+Each option name has a corresponding environment variable name and configuration file entry. The name used for both is the same. The command is capitalized, followed by `_`, then hyphens in the command are converted to `_` as well, and the two are concatenated, resulting in `PROG_foo_bar`.
+
+The default configuration file location is `~/.prog/progrc`. The file is processed as a shell file in such a way that only `PROG_` variable values are set. However, since the file is sourced, THE CONFIGURATION FILE CAN EXECUTE COMMANDS. This is not a recommended use of the configuration file. Additionally, the configuration file can be manipulated with the `config` subcommand. Be aware that the `config` subcommand currently cannot handle removing multi-line values, and those need to be manually removed.
+
+Similarly, the environment variable `PROG_foo_bar` can be set to a value to supply a value to an invocation of `prog`.
+
+
+## Argument value resolution
+
+Junonia provides several options for obtaining function argument values. They are, in order of lowest to highest precedence:
+
+* Implied default (blank)
+* Markdown default (`-foo-bar BAZ=1`)
+* Configuration file (As a line in `~/.prog/progrc`: `PROG_foo_bar=2`)
+* Environment variable (exported in the environment: `PROG_foo_bar=3`)
+* Command line argument (`prog -foo-bar=4`)
+
 ## Conventional locations
 
 All conventional, automatically discovered source paths, for an example project `prog` are outlined in the following two listings.
@@ -178,7 +319,7 @@ $JUNONIA_PATH/
   usr/share/doc/prog/script*.md
 ```
 
-## Examples layouts and invocation options
+## Additonal examples layouts and invocation options
 
 See the [examples](https://github.com/fprimex/junonia/tree/master/examples) directory to see how you can use Junonia to parse arguments from either a program argument spec defined in a tree-like format, or from Markdown documentation for each command.
 
@@ -334,3 +475,42 @@ A length can be given, which defaults to 10. The results always have leading zer
 * `junonia_require_cmds "$cmd1" [ "$cmd2" ... ]`
 
 Simple function to iterate over a given list of command strings to ensure they can be found.
+
+### AWK
+
+Similar to the shell utility functions, there are several AWK functions available as shell variables. All functions are available in a single environment variable `JUNONIA_AWKS`, declared as:
+
+```
+readonly JUNONIA_AWKS="
+$junonia_awk_hardwrap_line
+$junonia_awk_hardwrap
+$junonia_awk_twocol
+$junonia_awk_ncol
+$junonia_awk_echoerr
+$junonia_awk_echoerr_raw
+$junonia_awk_echodebug
+$junonia_awk_echodebug_raw
+$junonia_awk_randomish_int
+"
+```
+
+These functions match (and are the implementations for) the shell functions. To use these AWK functions in your own AWK programs, I suggest a format such as the following:
+
+```
+  awk_prog='
+    BEGIN {
+      line = "A line to wrap on spaces at width, then indent by pre"
+      print hardwrap(line, 15, "  ")
+    }'
+  awk "$JUNONIA_AWKS $awk_prog"
+```
+
+Giving the result:
+
+```
+  A line to wrap
+  on spaces at
+  width, then
+  indent by pre
+```
+
