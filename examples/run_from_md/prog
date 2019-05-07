@@ -1,9 +1,9 @@
 #!/bin/sh
 
-. ../../junonia
-
 prog () {
   echo "shared arg: $1"
+
+  echo 'Run `prog help` for more information'
 }
 
 prog_sub1 () {
@@ -18,15 +18,45 @@ prog_sub2 () {
   echo "sub2 opt2:  $4"
 }
 
-if [ $# -eq 0 ]; then
-cat << 'EOF'
-Try some of these:
-./prog -shared-arg foo
-./prog sub1 -sub1-opt1 foo -shared-arg bar
-./prog sub2 foo -sub2-opt1 bar -sub2-opt2 baz
-EOF
-exit
-fi
+prog_sub1_sub11 () {
+  echo "-shared-arg: $1"
+  echo "-sub1-opt1:  $2"
+  echo "-bool1:      $3"
+  echo "-bool2:      $4"
+  echo "-sub11-opt1: $5"
+}
 
-junonia_runmd "docs" "$@"
+prog_sub1_sub12 () {
+  echo "-shared-arg: $1"
+  echo "-sub1-opt1:  $2"
+  echo "-bool1:      $3"
+  echo "-bool2:      $4"
+  echo "-sub12 OPT1: $5"
+}
 
+# This is a compact version of junonia_bootstrap for easy copyhing into user
+# scripts. For a fully commented, documented version of this script see
+# https://github.com/fprimex/junonia/blob/master/junonia.sh
+junonia_bootstrap () {
+  JUNONIA_TARGET="$0"
+  while [ -h "$JUNONIA_TARGET" ]; do
+    JUNONIA_PATH="$(file -h "$JUNONIA_TARGET" | \
+                    sed 's/^.*symbolic link to //')"
+    if [ "$(echo "$JUNONIA_PATH" | cut -c -1)" = "/" ]; then
+      JUNONIA_TARGET="$JUNONIA_PATH"
+    else
+      JUNONIA_TARGET="$(dirname $JUNONIA_TARGET)"
+      JUNONIA_TARGET="$JUNONIA_TARGET/$JUNONIA_PATH"
+    fi
+  done
+  JUNONIA_PATH="$(cd "$(dirname "$JUNONIA_TARGET")" && pwd -P)"
+  JUNONIA_TARGET="$JUNONIA_PATH/$(basename $JUNONIA_TARGET)"
+  if [ "$(basename "$JUNONIA_PATH")" = bin ]; then
+    JUNONIA_PATH="$(dirname "$JUNONIA_PATH")"
+  fi
+}
+
+junonia_bootstrap
+. "$JUNONIA_PATH/../../junonia"
+
+junonia_runmd "documentation" "$@"
