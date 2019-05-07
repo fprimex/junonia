@@ -1032,7 +1032,7 @@ Information that needs to be generated to parse arguments and display help can b
 
 * \`-clear\`
 
-Remove the cache directory.
+Remove the cache directory. Note that a subsequent run of `cache` will result in the caching of at least a program argument spec, and perhaps other artifacts as well. They are being cleared, but then regenerated when `cache` is rerun.
 
 EOF
 }
@@ -1316,7 +1316,7 @@ _junonia_cache () {
       fi
     fi
   else
-    if [ -d "JUNONIA_CACHEDIR" ]; then
+    if [ -d "$JUNONIA_CACHEDIR" ]; then
       echo "cached files:"
       cd "$JUNONIA_CACHEDIR"
       find . -type f | cut -c 3-
