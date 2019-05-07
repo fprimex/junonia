@@ -65,7 +65,7 @@ prog
 #     -sub2-opt2 OPT2
 # '
 
-# This is a compact version of junonia_bootstrap for easy copyhing into user
+# This is a compact version of junonia_bootstrap for easy copying into user
 # scripts. For a fully commented, documented version of this script see
 # https://github.com/fprimex/junonia/blob/master/junonia.sh
 junonia_bootstrap () {

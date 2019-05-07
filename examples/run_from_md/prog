@@ -36,7 +36,7 @@ prog_sub1_sub12 () {
   echo "-sub12 OPT1: $5"
 }
 
-# This is a compact version of junonia_bootstrap for easy copyhing into user
+# This is a compact version of junonia_bootstrap for easy copying into user
 # scripts. For a fully commented, documented version of this script see
 # https://github.com/fprimex/junonia/blob/master/junonia.sh
 junonia_bootstrap () {
