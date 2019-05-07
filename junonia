@@ -1280,7 +1280,11 @@ _junonia_help () {
 
 _junonia_config () {
   if echo "$*" | grep -Eq '^ *$'; then
-    cat "$JUNONIA_CONFIG"
+    if [ -f "$JUNONIA_CONFIG" ]; then
+      cat "$JUNONIA_CONFIG"
+    else
+      echo "no configuration file at $JUNONIA_CONFIG"
+    fi
   else
     junonia_update_config "$JUNONIA_CONFIG" "$@"
   fi
