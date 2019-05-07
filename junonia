@@ -1249,7 +1249,7 @@ _junonia_help () {
 
   cmd="$(echo $helpfunc | sed 's/_/ /g;s/^ *//;s/ *$//')"
 
-  if helpfunc=$(_junonia_normalize_func $helpfunc); then
+  if helpfunc=$(_junonia_normalize_func "$helpfunc"); then
     spec_src_type=md_string
     md="$(${helpfunc}_md)"
   fi
@@ -1259,7 +1259,7 @@ _junonia_help () {
       mds="$(for f in "$md"/*.md; do cat "$f"; done;
              _junonia_mds)"
       helptext="$({ echo "$mds"; _junonia_plugin_docs; } | \
-                  _junonia_md2help "$cmd")"
+                  _junonia_md2help "$helpfunc")"
       ;;
     file)
       helptext="$({ cat "$md"; _junonia_plugin_docs; _junonia_mds; } | \
@@ -1550,9 +1550,9 @@ _junonia_get_registry () {
 
 _junonia_plugin_docs () {
   for plugin in $(_junonia_plugin_list); do
-    name="$(basename "$plugin")"
+    pname="$(basename "$plugin")"
     plugindir="$JUNONIA_CONFIGDIR/plugins/$plugin"
-    for docdir in "$plugindir/$name/usr/share/doc/$name" \
+    for docdir in "$plugindir/$name/usr/share/doc/$pname" \
                   "$plugindir/docs" \
                   "$plugindir/doc" \
                   "$plugindir"; do
@@ -1928,13 +1928,13 @@ _junonia_set_args () {
 
           # e.g. cmd subcommand help
           for(j=2; j<i-1; j++) {
-            func_name = func_name "_" pos[j]
+            func_name = func_name " " pos[j]
           }
 
           # Check the next arg to see if that should be the func for help
           # e.g. cmd subcommand help subcommand2
           if(ARGV[i+1] && ARGV[i+1] !~ /^-/) {
-            func_name = func_name "_" ARGV[i+1]
+            func_name = func_name " " ARGV[i+1]
           }
 
           print "_junonia_help" JRS md JRS spec_src_type JRS spec JRS func_name
@@ -2414,11 +2414,11 @@ _junonia_exec () {
   shift_n=0
 
   # Meta-commands should not be put through the user filter.
-  if func="$(_junonia_normalize_func $func)"; then
+  if func="$(_junonia_normalize_func "$func")"; then
     # If the user filter is getting skipped then a meta parameter is being run.
     # So the script's top level positional parameters and options need to be
     # filtered out. Does not apply to config and help.
-    if [ $func = _junonia_help ] || [ $func = _junonia_config ]; then
+    if [ "$func" = _junonia_help ] || [ "$func" = _junonia_config ]; then
       shift_n=0
     else
       awk_prog='/^  [-[A-Z]/ { shift++     }
@@ -2442,8 +2442,8 @@ _junonia_exec () {
     i=$(( $i + 1 ))
   done
 
-  if [ $func = "$JUNONIA_NAME" ]; then
-    func_location="$(command -v $func)"
+  if [ "$func" = "$JUNONIA_NAME" ]; then
+    func_location="$(command -v "$func")"
     if [ "$(echo "$func_location" | cut -c 1)" = / ]; then
       # Shell command named the same as the top level script, so return 0. This
       # assumes it is this script, which is a safe assumption because this
@@ -2461,8 +2461,8 @@ _junonia_exec () {
     # it gets called.
   fi
 
-  readonly JUNONIA_CMD="$(echo $func | sed 's/_/ /g')"
-  readonly JUNONIA_FUNC="$(echo $func | sed 's/-/_/g')"
+  readonly JUNONIA_CMD="$(echo "$func" | sed 's/_/ /g')"
+  readonly JUNONIA_FUNC="$(echo "$func" | sed 's/-/_/g')"
 
   # If the command hasn't already been sourced or defined somewhere, try to
   # discover it by checking for files corresponding to the function name.
@@ -2471,7 +2471,6 @@ _junonia_exec () {
   if ! command -v $JUNONIA_FUNC >/dev/null 2>&1; then
     if ! _junonia_func_search "$JUNONIA_PATH"; then
       for plugin in $(_junonia_plugin_list); do
-        name="$(basename "$plugin")"
         plugindir="$JUNONIA_CONFIGDIR/plugins/$plugin"
         _junonia_func_search "$plugindir"
       done
