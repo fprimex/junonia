@@ -27,6 +27,128 @@ The junonia library also provides:
 
 If the program implementation follows the junonia conventions for project layout, then all that is required, typically, is to write Markdown, then implement each subcommand as a shell function that will receive argument values in the order defined in the Markdown, and finally `junonia_bootstrap; . $JUNONIA_PATH/path/to/junonia; junonia_run "$@"`
 
+## Quick example
+
+For the Markdown `prog.md`:
+
+```
+## `prog`
+
+Short description of `prog`.
+
+### Synopsis
+
+    prog [SUBCOMMAND] [OPTIONS]
+
+### Description
+
+Long description of `prog`.
+
+### Options
+
+* `-shared-arg SHARED`
+
+This option is available to all `prog` subcommands.
+
+## `prog sub1`
+
+Short description of `sub1`.
+
+### Synopsis
+
+    prog sub1 [OPTIONS]
+
+### Description
+
+Description of subcommand number one.
+
+### Options
+
+* `-sub1-opt1 OPT1`
+
+This is option one for subcommand one.
+```
+
+And the program `prog`:
+
+```
+#!/bin/sh
+
+prog_version () {
+  echo "1.0.0"
+}
+
+prog () {
+  echo "shared arg: $1"
+}
+
+prog_sub1 () {
+  echo "shared arg: $1"
+  echo "sub1 opt1:  $2"
+}
+
+# A copy of junonia_boostrap goes here
+# https://github.com/fprimex/junonia/blob/master/junonia_bootstrap
+
+junonia_bootstrap
+. "$JUNONIA_PATH/some/path/to/junonia"
+junonia_run "$@"
+```
+
+The following is now available:
+
+```
+$ ./prog help
+NAME
+  prog -- Short description of `prog`.
+
+SYNOPSIS
+  prog [SUBCOMMAND] [OPTIONS]
+
+DESCRIPTION
+  Long description of `prog`.
+
+OPTIONS
+  -shared-arg SHARED
+                  This option is available to all `prog` subcommands.
+
+SUBCOMMANDS
+  sub1            Short description of `sub1`.
+  help            Print information about program and subcommand usage
+  config          Display or edit the `prog` config file
+  cache           Generate or clear meta-information cache
+  plugin          Manage prog shell plugins and programs
+  version         Display program version
+```
+
+```
+$ ./prog -shared-arg foo
+shared arg: foo
+```
+
+```
+$ ./prog help sub1
+NAME
+  prog sub1 -- Short description of `sub1`.
+
+SYNOPSIS
+  prog sub1 [OPTIONS]
+
+DESCRIPTION
+  Description of subcommand number one.
+
+OPTIONS
+  -sub1-opt1 OPT1 This is option one for subcommand one.
+```
+
+```
+$ ./prog sub1 -shared-arg foo -sub1-opt1 bar
+shared arg: foo
+sub1 opt1:  bar
+```
+
+And much more!
+
 ## Conventional locations
 
 All conventional, automatically discovered source paths, for an example project `prog` are outlined in the following two listings.

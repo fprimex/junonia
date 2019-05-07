@@ -962,7 +962,7 @@ _junonia_md () {
 cat << EOF
 ## \`$JUNONIA_NAME\`
 
-bourne shell scripting framework and program
+Bourne shell scripting framework and program
 
 ### Synopsis
 
@@ -979,7 +979,7 @@ _junonia_help_md () {
 cat << EOF
 ## \`$JUNONIA_NAME help\`
 
-print information about program and subcommand usage
+Print information about program and subcommand usage
 
 ### Synopsis
 
@@ -996,7 +996,7 @@ _junonia_config_md () {
 cat << EOF
 ## \`$JUNONIA_NAME config\`
 
-display or edit the \`$JUNONIA_NAME\` config file
+Display or edit the \`$JUNONIA_NAME\` config file
 
 ### Synopsis
 
@@ -1013,7 +1013,7 @@ _junonia_cache_md () {
 cat << EOF
 ## \`$JUNONIA_NAME cache\`
 
-generate or clear meta-information cache
+Generate or clear meta-information cache
 
 ### Synopsis
 
@@ -1036,7 +1036,7 @@ _junonia_plugin_md () {
 cat << EOF
 ## \`$JUNONIA_NAME plugin\`
 
-manage junonia shell plugins and programs
+Manage $JUNONIA_NAME shell plugins and programs
 
 ### Synopsis
 
@@ -1053,7 +1053,7 @@ _junonia_plugin_list_md () {
 cat << EOF
 ## \`$JUNONIA_NAME plugin list\`
 
-show installed plugins
+Show installed plugins
 
 ### Synopsis
 
@@ -1066,7 +1066,7 @@ _junonia_plugin_search_md () {
 cat << EOF
 ## \`$JUNONIA_NAME plugin search\`
 
-search the plugin registry for matches
+Search the plugin registry for matches
 
 ### Synopsis
 
@@ -1089,7 +1089,7 @@ _junonia_plugin_info_md () {
 cat << EOF
 ## \`$JUNONIA_NAME plugin info\`
 
-display a plugin or program summary
+Display a plugin or program summary
 
 ### Synopsis
 
@@ -1112,7 +1112,7 @@ _junonia_plugin_install_md () {
 cat << EOF
 ## \`$JUNONIA_NAME plugin install\`
 
-retrieve and install plugins and programs
+Retrieve and install plugins and programs
 
 ### Synopsis
 
@@ -1135,7 +1135,7 @@ _junonia_plugin_uninstall_md () {
 cat << EOF
 ## \`$JUNONIA_NAME plugin uninstall\`
 
-remove an installed plugin or program
+Remove an installed plugin or program
 
 ### Synopsis
 
@@ -1158,7 +1158,7 @@ _junonia_plugin_upgrade_md () {
 cat << EOF
 ## \`$JUNONIA_NAME plugin upgrade\`
 
-search for and retrieve a new plugin or program version
+Search for and retrieve a new plugin or program version
 
 ### Synopsis
 
@@ -1181,7 +1181,7 @@ _junonia_plugin_update_md () {
 cat << EOF
 ## \`$JUNONIA_NAME plugin update\`
 
-update the plugin registry cache
+Update the plugin registry cache
 
 ### Synopsis
 
@@ -1194,7 +1194,7 @@ _junonia_version_md () {
 cat << EOF
 ## \`$JUNONIA_NAME version, -v, -version, --version\`
 
-display program version
+Display program version
 
 ### Synopsis
 
@@ -1261,11 +1261,11 @@ _junonia_help () {
                   _junonia_md2help "$cmd")"
       ;;
     file)
-      helptext="$({ cat "$md"; _junonia_plugin_docs; } | \
+      helptext="$({ cat "$md"; _junonia_plugin_docs; _junonia_mds; } | \
                   _junonia_md2help "$cmd")"
       ;;
     md_string)
-      helptext="$({ echo "$md"; _junonia_plugin_docs; } | \
+      helptext="$({ echo "$md"; _junonia_plugin_docs; _junonia_mds; } | \
                   _junonia_md2help "$cmd")"
       ;;
     spec_string)
