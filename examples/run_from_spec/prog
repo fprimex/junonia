@@ -71,8 +71,7 @@ prog
 junonia_bootstrap () {
   JUNONIA_TARGET="$0"
   while [ -h "$JUNONIA_TARGET" ]; do
-    JUNONIA_PATH="$(file -h "$JUNONIA_TARGET" | \
-                    sed 's/^.*symbolic link to //')"
+    JUNONIA_PATH=$(readlink "$JUNONIA_TARGET")
     if [ "$(echo "$JUNONIA_PATH" | cut -c -1)" = "/" ]; then
       JUNONIA_TARGET="$JUNONIA_PATH"
     else

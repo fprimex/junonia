@@ -61,6 +61,11 @@
 #
 # JUNONIA_TARGET Absolute path to script being run with symlinks resolved.
 # JUNONIA_PATH   Absolute path to directory containing script being run.
+
+# Note that this is not POSIX but portable to many systems with nearly any kind
+# of implementation of readlink. I choose to use readlink because neither
+# alpine nor ubuntu docker images come with the file command, which could be
+# used instead, but do come with readlink.
 junonia_bootstrap () {
   # Get the command used to start this script
   JUNONIA_TARGET="$0"
@@ -72,8 +77,7 @@ junonia_bootstrap () {
     # Begin usage of JUNONIA_PATH to hold the link path.
 
     # Look at what this link points to
-    JUNONIA_PATH="$(file -h "$JUNONIA_TARGET" | \
-                    sed 's/^.*symbolic link to //')"
+    JUNONIA_PATH=$(readlink "$JUNONIA_TARGET")
 
     if [ "$(echo "$JUNONIA_PATH" | cut -c -1)" = "/" ]; then
       # Link path is absolute (first character is /); just need to follow it.
