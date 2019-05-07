@@ -58,6 +58,7 @@ junonia_bootstrap () {
   fi
 }
 
+JUNONIA_CACHE=0
 junonia_bootstrap
 . "$JUNONIA_PATH/../../junonia"
 

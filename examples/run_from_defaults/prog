@@ -26,6 +26,7 @@ prog () {
   exec $0 help
 }
 
+JUNONIA_CACHE=0
 junonia_bootstrap
 . "$JUNONIA_PATH/../../junonia"
 

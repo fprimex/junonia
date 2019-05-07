@@ -775,7 +775,9 @@ _junonia_md2help () {
     # Find the topmost level command title to bootstrap subcommand location.
     title && i == 1 && $0 == cmda[1] {
       cmd_part = cmda[1]
-      txt = txt "  " cmd_part "\n"
+      if(i == n) {
+        txt = txt "  " cmd_part "\n"
+      }
       subcmd_re = "^" cmd_part " [-_A-Za-z0-9]+(,|$)"
       i++
       next
@@ -2270,7 +2272,7 @@ junonia_runmd_filtered () {
     ret=$?
     spec_src_type="file"
   elif [ "$(echo "$md" | wc -l)" -gt 1 ]; then
-    spec="${spec:-"$({echo "$md"; _junonia_plugin_docs} | _junonia_md2spec -)"}"
+    spec="${spec:-"$({echo "$md"; _junonia_plugin_docs} | _junonia_md2spec "" -)"}"
     ret=$?
     spec_src_type="md_string"
   fi
@@ -2323,18 +2325,27 @@ _junonia_run_final () {
     # Insert the standard meta parameters.
     spec="$(
       echo "$spec" | awk -v s="$_junonia_cmds" '
+        /^ *#/ {
+          comments = comments $0 "\n"
+        }
         /^[a-z]/ {
           insert_meta = 1
+          if(comments) print substr(comments, 1, length(comments) -1 )
+          comments = ""
           print
           next
         }
         insert_meta && /^  [a-z]/ {
           print s
+          if(comments) print substr(comments, 1, length(comments) -1 )
+          comments = ""
           print
           insert_meta = 0
           next
         }
-        {
+        ! /^ *#/ {
+          if(comments) print substr(comments, 1, length(comments) -1 )
+          comments = ""
           print
         }
         END {
