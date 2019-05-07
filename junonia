@@ -1274,7 +1274,7 @@ _junonia_help () {
   esac
 
   echo "$helptext"
-  _junonia_cache_file "help/$helpfunc" "$helptext"
+  junonia_cache_file "help/$helpfunc" "$helptext"
 }
 
 _junonia_config () {
@@ -1508,7 +1508,7 @@ _junonia_normalize_func () {
   return 1
 }
 
-_junonia_cache_file () {
+junonia_cache_file () {
   cachepath="$1"
   contents="$2"
 
@@ -1539,7 +1539,7 @@ _junonia_get_registry () {
     fi
 
     reg="$(curl -s ${JUNONIA_NAME}_registry)"
-    _junonia_cache_file "$reg_file" "$reg"
+    junonia_cache_file "$reg_file" "$reg"
   fi
 }
 
@@ -2356,7 +2356,7 @@ _junonia_run_final () {
       '
     )"
 
-    _junonia_cache_file spec "$spec"
+    junonia_cache_file spec "$spec"
   fi
 
   # Retrieve the argument values in the order defined in the spec.
