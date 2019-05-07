@@ -1,5 +1,7 @@
 #!/bin/sh
 
+# All functions are implemented in this one top level program script.
+
 prog () {
   echo "shared arg: $1"
 
@@ -59,4 +61,6 @@ junonia_bootstrap () {
 junonia_bootstrap
 . "$JUNONIA_PATH/../../junonia"
 
+# Instead of relying on automatic discovery of documentation, point the run
+# directly at the (non-automatic) documentation directory with runmd.
 junonia_runmd "documentation" "$@"
