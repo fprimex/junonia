@@ -1563,16 +1563,16 @@ _junonia_func_search () {
   searchpath="$1"
   i=0
 
-  while ! command -v $func >/dev/null 2>&1; do
+  while ! command -v $JUNONIA_FUNC >/dev/null 2>&1; do
     case $i in
-      0) p="$searchpath/$func.sh";;
-      1) p="$searchpath/cmd/$func.sh";;
-      2) p="$searchpath/cmds/$func.sh";;
-      3) p="$searchpath/lib/$JUNONIA_NAME/$func.sh";;
-      4) p="$searchpath/lib/$JUNONIA_NAME/cmd/$func.sh";;
-      5) p="$searchpath/lib/$JUNONIA_NAME/cmds/$func.sh";;
-      6) p="$searchpath/lib/$JUNONIA_NAME/command/$func.sh";;
-      7) p="$searchpath/lib/$JUNONIA_NAME/commands/$func.sh";;
+      0) p="$searchpath/$JUNONIA_FUNC.sh";;
+      1) p="$searchpath/cmd/$JUNONIA_FUNC.sh";;
+      2) p="$searchpath/cmds/$JUNONIA_FUNC.sh";;
+      3) p="$searchpath/lib/$JUNONIA_NAME/$JUNONIA_FUNC.sh";;
+      4) p="$searchpath/lib/$JUNONIA_NAME/cmd/$JUNONIA_FUNC.sh";;
+      5) p="$searchpath/lib/$JUNONIA_NAME/cmds/$JUNONIA_FUNC.sh";;
+      6) p="$searchpath/lib/$JUNONIA_NAME/command/$JUNONIA_FUNC.sh";;
+      7) p="$searchpath/lib/$JUNONIA_NAME/commands/$JUNONIA_FUNC.sh";;
       *) return 1
     esac
 
@@ -1584,7 +1584,7 @@ _junonia_func_search () {
 
       # Only stop the search if the sourced file actually contained the
       # function.
-      if command -v $func >/dev/null 2>&1; then
+      if command -v $JUNONIA_FUNC >/dev/null 2>&1; then
         return 0
       fi
     fi
@@ -2483,7 +2483,7 @@ _junonia_exec () {
   # the function.
   echodebug "function: $JUNONIA_FUNC"
   echodebug "args: $*"
-  $func "$@"
+  $JUNONIA_FUNC "$@"
 }
 
 # Set up the execution environment. Init is always safe to rerun init as it has
