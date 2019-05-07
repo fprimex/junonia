@@ -1,0 +1,175 @@
+#!/bin/sh
+
+mdstr () {
+cat << 'EOF'
+# My Program
+
+My awesome program, with documentation all on one markdown page.
+
+## `prog`
+
+Short description of `prog`.
+
+### Synopsis
+
+    prog [SUBCOMMAND] [OPTIONS]
+
+### Description
+
+Long description of `prog`.
+
+### Options
+
+* `-shared-arg SHARED`
+
+This option is available to all `prog` subcommands.
+
+## `prog sub1`
+
+Short description of `sub1`.
+
+### Synopsis
+
+    prog sub1 [OPTIONS]
+
+### Description
+
+Description of subcommand number one.
+
+### Options
+
+* `-sub1-opt1 OPT1`
+
+This is option one for subcommand one.
+
+## `prog sub1 sub11`
+
+Short description of `sub1 sub11`.
+
+### Synopsis
+
+    prog sub1 sub11 [OPTIONS]
+
+### Description
+
+Description of subcommand number one.
+
+### Options
+
+* `-sub11-opt1 OPT1`
+
+This is option one for subcommand one.
+
+## `prog sub1 sub12`
+
+Short description of `sub1 sub12`.
+
+### Synopsis
+
+    prog sub1 sub12 [OPTIONS]
+
+### Description
+
+Description of subcommand number one.
+
+### Options
+
+* `-sub12-opt1 OPT1`
+
+This is option one for subcommand one.
+
+## `prog sub2`
+
+Short description of `sub2`.
+
+### Synopsis
+
+    prog sub2 POS1 [OPTIONS]
+
+### Description
+
+Subcommand two's description
+
+### Positional parameters
+
+* `POS1`
+
+### Options
+
+* `-sub2-opt1 OPT1`
+
+Subcommand two's first option.
+
+* `-sub2-opt2 OPT2`
+
+Subcommand two's second option.
+
+EOF
+}
+
+# All functions are implemented in this one top level program script.
+
+prog () {
+  echo "shared arg: $1"
+
+  echo 'Run `prog help` for more information'
+}
+
+prog_sub1 () {
+  echo "shared arg: $1"
+  echo "sub1 opt1:  $2"
+}
+
+prog_sub2 () {
+  echo "shared arg: $1"
+  echo "POS1:       $2"
+  echo "sub2 opt1:  $3"
+  echo "sub2 opt2:  $4"
+}
+
+prog_sub1_sub11 () {
+  echo "-shared-arg: $1"
+  echo "-sub1-opt1:  $2"
+  echo "-bool1:      $3"
+  echo "-bool2:      $4"
+  echo "-sub11-opt1: $5"
+}
+
+prog_sub1_sub12 () {
+  echo "-shared-arg: $1"
+  echo "-sub1-opt1:  $2"
+  echo "-bool1:      $3"
+  echo "-bool2:      $4"
+  echo "-sub12 OPT1: $5"
+}
+
+# This is a compact version of junonia_bootstrap for easy copyhing into user
+# scripts. For a fully commented, documented version of this script see
+# https://github.com/fprimex/junonia/blob/master/junonia.sh
+junonia_bootstrap () {
+  JUNONIA_TARGET="$0"
+  while [ -h "$JUNONIA_TARGET" ]; do
+    JUNONIA_PATH="$(file -h "$JUNONIA_TARGET" | \
+                    sed 's/^.*symbolic link to //')"
+    if [ "$(echo "$JUNONIA_PATH" | cut -c -1)" = "/" ]; then
+      JUNONIA_TARGET="$JUNONIA_PATH"
+    else
+      JUNONIA_TARGET="$(dirname $JUNONIA_TARGET)"
+      JUNONIA_TARGET="$JUNONIA_TARGET/$JUNONIA_PATH"
+    fi
+  done
+  JUNONIA_PATH="$(cd "$(dirname "$JUNONIA_TARGET")" && pwd -P)"
+  JUNONIA_TARGET="$JUNONIA_PATH/$(basename $JUNONIA_TARGET)"
+  if [ "$(basename "$JUNONIA_PATH")" = bin ]; then
+    JUNONIA_PATH="$(dirname "$JUNONIA_PATH")"
+  fi
+}
+
+JUNONIA_CACHE=0
+junonia_bootstrap
+. "$JUNONIA_PATH/../../junonia"
+
+# Instead of relying on automatic discovery of documentation, point the run
+# directly at the (non-automatic) documentation string with runmd.
+junonia_runmd "$(mdstr)" "$@"
+
