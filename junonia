@@ -1666,7 +1666,7 @@ junonia_init () {
   JUNONIA_COL2="${JUNONIA_COL2:-60}"
 
   #readonly JUNONIA_VERSION="unversioned"
-  readonly JUNONIA_VERSION="1.0.1"
+  readonly JUNONIA_VERSION="1.0.2"
 
   # Information Separator control characters (IS4 - IS1)
   readonly JUNONIA_FS="" # File   Separator (FS / IS4 / dec 28)
