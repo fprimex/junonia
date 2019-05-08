@@ -2486,11 +2486,17 @@ _junonia_exec () {
   fi
 
   # At this point, all of the following are set and fixed.
-  readonly JUNONIA_CMD="$(echo "$func" | sed 's/_/ /g')"
-  readonly JUNONIA_FUNC="$(echo "$func" | sed 's/-/_/g')"
-  readonly JUNONIA_MD="$md"
-  readonly JUNONIA_SPEC_TYPE="$spec_type"
-  readonly JUNONIA_SPEC="$spec"
+  export JUNONIA_CMD="$(echo "$func" | sed 's/_/ /g')"
+  export JUNONIA_FUNC="$(echo "$func" | sed 's/-/_/g')"
+  export JUNONIA_MD="$md"
+  export JUNONIA_SPEC_TYPE="$spec_type"
+  export JUNONIA_SPEC="$spec"
+
+  readonly JUNONIA_CMD
+  readonly JUNONIA_FUNC
+  readonly JUNONIA_MD
+  readonly JUNONIA_SPEC_TYPE
+  readonly JUNONIA_SPEC
 
   # If the command hasn't already been sourced or defined somewhere, try to
   # discover it by checking for files corresponding to the function name.
