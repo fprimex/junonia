@@ -1032,7 +1032,7 @@ Information that needs to be generated to parse arguments and display help can b
 
 * \`-clear\`
 
-Remove the cache directory. Note that a subsequent run of `cache` will result in the caching of at least a program argument spec, and perhaps other artifacts as well. They are being cleared, but then regenerated when `cache` is rerun.
+Remove the cache directory. Note that a subsequent run of \`cache\` will result in the caching of at least a program argument spec, and perhaps other artifacts as well. They are being cleared, but then regenerated when \`cache\` is rerun.
 
 EOF
 }
