@@ -2,9 +2,9 @@
 
 [A snail with a beautiful shell.](https://en.wikipedia.org/wiki/Scaphella_junonia)
 
-Document your shell program in Markdown and get:
+Junonia is a shell framework for creating command line user interfaces from Markdown documentation. Command line argument parsing, help generation, and more are dynamically generated from definitions in Markdown files. Features include:
 
-* argument parsing, including
+* argument parsing of
   - subcommands
   - positional parameters
   - options
@@ -321,7 +321,7 @@ $JUNONIA_PATH/
 
 ## Additonal examples layouts and invocation options
 
-See the [examples](https://github.com/fprimex/junonia/tree/master/examples) directory to see how you can use Junonia to parse arguments from either a program argument spec defined in a tree-like format, or from Markdown documentation for each command.
+See the [examples](https://github.com/fprimex/junonia/tree/master/examples) directory to see how you can use junonia to parse arguments from either a program argument spec defined in a tree-like format, or from Markdown documentation for each command.
 
 ## Junonia utilities and functions
 

@@ -1,24 +1,24 @@
 #!/bin/sh
 
 prog () {
-  echo "shared arg: $1"
-
-  echo 'Run `prog help` for more information'
+  echo "-shared-arg: $1"
+  echo
+  echo 'Run `prog help` options and subcommands'
 }
 
 prog_sub1 () {
-  echo "shared arg: $1"
-  echo "param1    : $2"
-  echo "sub1 opt1 : $3"
-  echo "bool1     : $4"
-  echo "bool2     : $5"
+  echo "-shared-arg: $1"
+  echo "-param1    : $2"
+  echo "-sub1-opt1 : $3"
+  echo "-bool1     : $4"
+  echo "-bool2     : $5"
 }
 
 prog_sub2 () {
-  echo "shared arg: $1"
-  echo "POS1:       $2"
-  echo "sub2 opt1:  $3"
-  echo "sub2 opt2:  $4"
+  echo "-shared-arg: $1"
+  echo "-POS1:       $2"
+  echo "-sub2-opt1:  $3"
+  echo "-sub2-opt2:  $4"
 }
 
 spec='# Prog

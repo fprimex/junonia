@@ -22,7 +22,9 @@ junonia_bootstrap () {
 }
 
 prog () {
-  exec $0 help
+  echo "-shared-arg: $1"
+  echo
+  echo 'Run `prog help` options and subcommands'
 }
 
 JUNONIA_CACHE=0
