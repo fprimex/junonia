@@ -1735,9 +1735,6 @@ junonia_init () {
   # Enable caching, but leave it available to be disabled later if need be.
   export JUNONIA_CACHE="${JUNONIA_CACHE:-1}"
 
-  # Configure if debug messages will be printed.
-  junonia_setdebug "$JUNONIA_DEBUG"
-
   # Indicate that init has happened
   readonly JUNONIA_INIT=1
 }
@@ -2527,6 +2524,9 @@ _junonia_exec () {
   # the function.
   $JUNONIA_FUNC "$@"
 }
+
+# Configure if debug messages will be printed.
+junonia_setdebug "$JUNONIA_DEBUG"
 
 # Set up the execution environment. Init is always safe to rerun init as it has
 # a guard. If junonia is copied into the bottom of a scirpt for single-file
