@@ -430,6 +430,16 @@ junonia_randomish_int () {
   fi
 }
 
+# Determine if an argument is an integer.
+junonia_is_int () {
+  test "$1" -eq "$1" >/dev/null 2>&1
+}
+
+# Determine if an argument is any kind of number.
+junonia_is_num () {
+  awk -v n="$1" 'BEGIN{if(n!=n+1-1){exit 1}}' >/dev/null 2>&1
+}
+
 # Shell entrypoint for hardwrapping a line.
 junonia_hardwrap () {
   awk_prog='BEGIN { printf "%s", hardwrap(s, w, p, f) }'
@@ -2364,7 +2374,7 @@ _junonia_run_final () {
           next
         }
         insert_meta && /^  [a-z]/ {
-          #print s
+          print s
           if(comments) print substr(comments, 1, length(comments) - 1 )
           comments = ""
           print
@@ -2384,6 +2394,7 @@ _junonia_run_final () {
       ' "$_junonia_cmds"
     )"
 
+    echodebug "$spec"
     junonia_cache_file spec "$spec"
   fi
 
