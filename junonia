@@ -129,8 +129,10 @@ echoerr () { echoerr_raw "[ERROR] $@"; }
 echodebug_raw () { printf '%s\n' "$@" 1>&3; }
 echodebug () { echodebug_raw "[DEBUG] $@"; }
 
-# Convenience function for using a verbose level echo
-echov () { [ -n "$verbose" ] && printf '%s\n' "$@"; }
+# Convenience functions for using a verbose level echo
+echov   () { [ -n "$verbose"   ] && printf '%s\n' "$@"; }
+echovv  () { [ -n "$vverbose"  ] && printf '%s\n' "$@"; }
+echovvv () { [ -n "$vvverbose" ] && printf '%s\n' "$@"; }
 
 ###
 ### AWK utility functions
@@ -510,11 +512,14 @@ junonia_require_cmds () {
 # value.
 junonia_update_config () {
   if [ -f "$1" ]; then
-    echodebug "Modifying $1"
+    echodebug "modifying $1"
   else
-    echodebug "Creating $1"
+    echodebug "creating $1"
+    if ! mkdir -p "$(dirname "$1")"; then
+      echoerr "could not create $(dirname "$1")"
+    fi
     if ! touch "$1"; then
-      echoerr "Could not create $1"
+      echoerr "could not create $1"
       return 1
     fi
   fi
@@ -662,13 +667,33 @@ _junonia_md2spec () {
         spec()
       }
 
-      gsub(/`/, "")
-      split($0, subcmda, ",")
+      # Strip everything around the title
+      gsub(/^## `|`$/, "")
+
+      # Empty the list first
+      split("", subcmds, ":")
+
+      # Split on commas to get the first part plus the aliases
+      sn = split($0, subcmda, ",")
+
+      # Split the first part and get the last item to get the primary subcmd
       pn = split(subcmda[1], primary_subcmd)
-      cmd = primary_subcmd[pn]
+
+      # Put that primary subcommand in the first command slot
+      cmd = primary_subcmd[pn] ","
+
+      # Add the command aliases
+      for(i=2; i<=sn; i++) {
+        # Normalize the entries to have a comma on the end
+        sub(/,+$/, ",", subcmda[i])
+        cmd = cmd subcmda[i]
+      }
+
+      # Strip the last trailing comma
+      sub(/,$/, "", cmd)
 
       indent = ""
-      for(i=0; i<pn-2; i++) {
+      for(i=1; i<pn; i++) {
         indent = indent "  "
       }
     }
@@ -1741,7 +1766,7 @@ junonia_init () {
   JUNONIA_COL1="${JUNONIA_COL1:-18}"
   JUNONIA_COL2="${JUNONIA_COL2:-60}"
 
-  readonly JUNONIA_VERSION="1.0.3dev"
+  readonly JUNONIA_VERSION="1.0.3"
 
   # Information Separator control characters (IS4 - IS1)
   readonly JUNONIA_FS="" # File   Separator (FS / IS4 / dec 28)
@@ -2553,8 +2578,15 @@ _junonia_exec () {
   else
     # If there is a filter function and it is not getting skipped, then run it.
     if [ -n "$filter_func" ] && command -v "$filter_func" >/dev/null 2>&1; then
-       $filter_func "$@"
-       shift_n=$?
+      $filter_func "$@"
+      shift_n=$?
+
+      # 64 is standard EX_USAGE, command used incorrectly. This is what filter
+      # functions should return to indicate a problem.
+      if [ $shift_n -eq 64 ]; then
+        # A program level error should be printed for this problem.
+        return 1
+      fi
     fi
   fi
 
