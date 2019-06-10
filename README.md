@@ -429,9 +429,11 @@ Print to stderr. Raw prints the value exactly as given, whereas the non-raw vers
 
 Print to file descriptor 3, which may be configured to direct to `/dev/null` (debugging is off) or stderr (debugging is on). Raw prints the value exactly as given, whereas the non-raw version prepends the string `[DEBUG]`.
 
-* `echov "$msg"`
+* `echov   "$msg"`
+* `echovv  "$msg"`
+* `echovvv "$msg"`
 
-Convenience function that checks the variable `$verbose` to see if it should print the given message. The `$verbose` variable is not set or manipulated anywhere in junonia.
+Convenience functions that check the variable `$verbose`, `$vverbose`, and `$vvverbose` to see if it should print the given message. The environment variables are not set or manipulated anywhere in junonia.
 
 * `junonia_hardwrap "$lines" "$width" "$prefix" "$float"`
 
@@ -472,9 +474,21 @@ The seed HAS to be sufficient in order for this to work. Sending the current tim
 
 A length can be given, which defaults to 10. The results always have leading zeroes stripped so that they are useful as decimal integer values.
 
+* `junonia_is_int $n`
+
+Determine if the given argument is an integer value.
+
+* `junonia_is_num $n`
+
+Determine if the given argument is any kind of numeric value.
+
 * `junonia_require_cmds "$cmd1" [ "$cmd2" ... ]`
 
 Simple function to iterate over a given list of command strings to ensure they can be found.
+
+# `junonia_envvars a|r|w [PREFIX]`
+
+Get all environment variables, all readonly environment variables, or all writable environment variables matching an optional prefix.
 
 ### AWK
 
