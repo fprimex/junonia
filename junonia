@@ -1936,8 +1936,10 @@ junonia_envvars () {
 # empty value is generated, such that every specified option has a value, even
 # if that value is empty.
 #
-# $1      The full text of a program argument spec.
-# $2 - $N The program name and arguments from the command line.
+# $1      The full Markdown text
+# $2      The source of the Markdown text
+# $3      The full text of a program argument spec
+# $4 - $N The program name and arguments from the command line
 _junonia_set_args () {
   echodebug "begin set args"
 
@@ -2225,27 +2227,29 @@ _junonia_set_args () {
       # environment variables and config file entries is the last given option.
       opt = aliasa[n_aliases]
       if(! config) {
+        optval = ""
         envopt = envname "_" substr(opt, 2)
         gsub(/-/, "_", envopt)
 
         if(booldef) {
-          args = args mapbool(def, opt)
+          optval = mapbool(def, opt)
         } else {
           if($2 !~ /\[[A-Za-z0-9]/) {
             n = index($0, "=")
             if(n) {
-              args = args substr($0, n + 1)
+              optval = substr($0, n + 1)
             }
           }
         }
 
         if(ENVIRON[envopt]) {
           if($2) {
-            args = args ENVIRON[envopt]
+            optval = ENVIRON[envopt]
           } else {
-            args = args mapbool(ENVIRON[envopt], opt)
+            optval = mapbool(ENVIRON[envopt], opt)
           }
         }
+        args = args optval
       }
     }
     args = args JRS
@@ -2326,7 +2330,7 @@ _junonia_set_args () {
   }'
 
   echo "$spec" | awk -v JRS="$JUNONIA_RS" -v JUS="$JUNONIA_US" \
-                     "$JUNONIA_AWKS $awk_prog" - "$@"
+                     "$JUNONIA_AWKS $awk_prog" - "$JUNONIA_NAME" "$@"
 }
 
 
@@ -2549,7 +2553,7 @@ _junonia_run_final () {
 
   # Retrieve the argument values in the order defined in the spec.
   if ! arg_vals="$(_junonia_set_args "$md" "$spec_type" "$spec" \
-                                     "$JUNONIA_NAME" "$@")"; then
+                                     "$@")"; then
     # An error should have been supplied on stderr
     return 1
   fi
