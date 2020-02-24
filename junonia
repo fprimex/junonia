@@ -1576,6 +1576,8 @@ _junonia_plugin_update () {
 _junonia_version () {
   if command -v ${JUNONIA_NAME}_version >/dev/null 2>&1; then
     ver="$JUNONIA_NAME $(${JUNONIA_NAME}_version)"
+  elif [ "$JUNONIA_NAME" = junonia ]; then
+    ver="$JUNONIA_VERSION"
   else
     ver="$JUNONIA_NAME unversioned"
   fi
@@ -1770,7 +1772,7 @@ junonia_init () {
   JUNONIA_COL1="${JUNONIA_COL1:-18}"
   JUNONIA_COL2="${JUNONIA_COL2:-60}"
 
-  readonly JUNONIA_VERSION="1.0.9"
+  readonly JUNONIA_VERSION="1.0.10"
 
   # Information Separator control characters (IS4 - IS1)
   readonly JUNONIA_FS="" # File   Separator (FS / IS4 / dec 28)
@@ -2613,7 +2615,8 @@ _junonia_exec () {
     if [ "$func" = _junonia_help ] || [ "$func" = _junonia_config ]; then
       shift_n=0
     else
-      awk_prog='/^  [-[A-Z]/ { shift++     }
+      awk_prog='BEGIN        { shift = 0   }
+                /^  [-[A-Z]/ { shift++     }
                 END          { print shift }'
       shift_n="$(echo "$spec" | awk "$awk_prog")"
     fi
