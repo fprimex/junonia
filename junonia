@@ -1770,7 +1770,7 @@ junonia_init () {
   JUNONIA_COL1="${JUNONIA_COL1:-18}"
   JUNONIA_COL2="${JUNONIA_COL2:-60}"
 
-  readonly JUNONIA_VERSION="1.0.8"
+  readonly JUNONIA_VERSION="1.0.9"
 
   # Information Separator control characters (IS4 - IS1)
   readonly JUNONIA_FS="" # File   Separator (FS / IS4 / dec 28)
@@ -2637,7 +2637,8 @@ _junonia_exec () {
   # other) values.
   echodebug "Shifting $shift_n arguments"
   i=0
-  while [ $i -lt $# ] && [ $i -lt $shift_n ]; do
+  n_args=$#
+  while [ $i -lt $n_args ] && [ $i -lt $shift_n ]; do
     shift
     i=$(( $i + 1 ))
   done
