@@ -439,7 +439,7 @@ junonia_is_int () {
 
 # Determine if an argument is any kind of number.
 junonia_is_num () {
-  awk -v n="$1" 'BEGIN{if(n!=n+1-1){exit 1}}' >/dev/null 2>&1
+  awk -v n="$1" 'BEGIN{if(n!=n*1){exit 1}}' >/dev/null 2>&1
 }
 
 # Shell entrypoint for hardwrapping a line.
