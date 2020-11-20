@@ -401,6 +401,67 @@ junonia_awk_randomish_int='
   }
 '
 
+# Replace quotes and newlines with escape characters to prepare the
+# value for insertion into JSON.
+junonia_awk_json_escape='
+  function json_escape(s, lines, nlines, i, result) {
+    nlines = split(s, lines, "\n")
+    result = lines[1]
+    for(i=2; i<nlines; i++) {
+      gsub(/"/,"\\\"")
+      gsub(/\\n/,"\\\\n")
+      result = result "\\n" a[i]
+    }
+    return result
+  }
+'
+junonia_awk_make_jqarg='
+  function make_jqarg(val) {
+    # Unquoted special values
+    if(val == "true" || val == "false" || val == "null" || val == val*1) {
+      return val
+    } else {
+      # Quoted string value
+      # Allowing |tostring adds support for specifying that a value should be
+      # a string no matter what. Values like true and 2.6 can be made "true"
+      # and "2.6" by specifying true|tostring and 2.6|tostring.
+      sub(/\|tostring$/, "", val)
+      return "\"" val "\""
+    }
+  }
+'
+
+junonia_awk_make_jqprog='
+  function make_jqprog(name, val, next_argchar) {
+    next_argchar = substr(val, 1, 1)
+    if(next_argchar == "-" || next_argchar == ".") {
+        # If the next thing is an option instead of a value, then set the
+        # value to true and move on.
+        jqprog = jqprog "\n" name " = true |"
+        return 0
+
+    } else {
+
+      if(substr(name, length(name-2), 2) == "[]") {
+        sub(/\[\]$/, "", name)
+        jqprog = jqprog "\n" name " |= . + [" make_jqarg(val) "] |"
+      } else {
+        # Add this arg and its value, the next value, to the jq program
+        jqprog = jqprog "\n" name " = " make_jqarg(val) " |"
+      }
+      return 1
+    }
+  }
+'
+
+junonia_awk_end_jqprog='
+  function end_jqprog() {
+    sub(/^\n/, "", jqprog)
+    jqprog = jqprog "\ntostring"
+  }
+'
+
+
 readonly JUNONIA_AWKS="
 $junonia_awk_hardwrap_line
 $junonia_awk_hardwrap
@@ -411,6 +472,10 @@ $junonia_awk_echoerr_raw
 $junonia_awk_echodebug
 $junonia_awk_echodebug_raw
 $junonia_awk_randomish_int
+$junonia_awk_json_escape
+$junonia_awk_make_jqarg
+$junonia_awk_make_jqprog
+$junonia_awk_end_jqprog
 "
 
 
@@ -428,6 +493,15 @@ junonia_randomish_int () {
   if ! awk -v s="$(/bin/sh -c 'echo $$')" \
            -v n="$1" "$junonia_awk_randomish_int $awk_prog"; then
     echoerr 'unable to generate random int'
+    return 1
+  fi
+}
+
+junonia_json_escape () {
+  awk_prog='BEGIN { printf "%s", json_escape(s) }'
+
+  if ! awk -v s="$1" "$junonia_awk_json_escape $awk_prog"; then
+    echoerr 'unable to convert value to escaped json'
     return 1
   fi
 }
@@ -725,8 +799,11 @@ _junonia_md2spec () {
     # * `-o, -option VAL=default`
     # * `-option VAL1 [-option VAL2 ...]`
     options && /^\* `-[-A-Za-z0-9]+/ {
+      # Remove the leading bullet-space-backtick and the last backtick
       gsub(/^\* `|`$/, "")
 
+      # Options can have aliases. The definitive one is the last one, so loop
+      # through the option names until the last one is reached.
       opt = ""
       while(match($0, /^-[-_A-Za-z0-9]+/)) {
         opt = opt substr($0, RSTART, RLENGTH) ","
@@ -737,7 +814,7 @@ _junonia_md2spec () {
 
       sub(/^ */, "")
       if(substr($0, 1, 1) == "=") {
-        # Boolean with default
+        # Boolean with default (-option=bool_default)
         opts[++n_opts] = opt "=" substr($0, 2)
       } else {
         split($0, a, "=")
@@ -762,6 +839,29 @@ _junonia_md2spec () {
         } else {
           # Boolean with no default
           opts[++n_opts] = opt
+        }
+      }
+    }
+
+    /^### REST endpoint/ {
+      rest = 1
+    }
+
+    #    GET https://{hostname}/{param1}/path/{param2}?{query}
+    rest && /^    [A-Z]+ http/ {
+      method = $1
+      url = $2
+
+      params[++n_params] = "JUNONIA_REST_FUNC"
+      params[++n_params] = "METHOD=" method
+      params[++n_params] = "URL=" url
+
+      i = 0
+      while(url != "") {
+        sub(/[^{]*/, "", url)
+        i = index(url, "}")
+        if(i) {
+          opts[++n_opts] = substr(url, 1, i)
         }
       }
     }
@@ -1678,18 +1778,19 @@ _junonia_func_search () {
   echodebug "begin func search"
 
   searchpath="$1"
+  func_name="$2"
   i=0
 
-  while ! command -v $JUNONIA_FUNC >/dev/null 2>&1; do
+  while ! command -v $func_name >/dev/null 2>&1; do
     case $i in
-      0) p="$searchpath/$JUNONIA_FUNC.sh";;
-      1) p="$searchpath/cmd/$JUNONIA_FUNC.sh";;
-      2) p="$searchpath/cmds/$JUNONIA_FUNC.sh";;
-      3) p="$searchpath/lib/$JUNONIA_NAME/$JUNONIA_FUNC.sh";;
-      4) p="$searchpath/lib/$JUNONIA_NAME/cmd/$JUNONIA_FUNC.sh";;
-      5) p="$searchpath/lib/$JUNONIA_NAME/cmds/$JUNONIA_FUNC.sh";;
-      6) p="$searchpath/lib/$JUNONIA_NAME/command/$JUNONIA_FUNC.sh";;
-      7) p="$searchpath/lib/$JUNONIA_NAME/commands/$JUNONIA_FUNC.sh";;
+      0) p="$searchpath/$func_name.sh";;
+      1) p="$searchpath/cmd/$func_name.sh";;
+      2) p="$searchpath/cmds/$func_name.sh";;
+      3) p="$searchpath/lib/$JUNONIA_NAME/$func_name.sh";;
+      4) p="$searchpath/lib/$JUNONIA_NAME/cmd/$func_name.sh";;
+      5) p="$searchpath/lib/$JUNONIA_NAME/cmds/$func_name.sh";;
+      6) p="$searchpath/lib/$JUNONIA_NAME/command/$func_name.sh";;
+      7) p="$searchpath/lib/$JUNONIA_NAME/commands/$func_name.sh";;
       *) return 1
     esac
 
@@ -1701,11 +1802,14 @@ _junonia_func_search () {
 
       # Only stop the search if the sourced file actually contained the
       # function.
-      if command -v $JUNONIA_FUNC >/dev/null 2>&1; then
+      if command -v $func_name >/dev/null 2>&1; then
         return 0
       fi
     fi
   done
+
+  # Function was not found
+  return 1
 }
 
 
@@ -1772,7 +1876,7 @@ junonia_init () {
   JUNONIA_COL1="${JUNONIA_COL1:-18}"
   JUNONIA_COL2="${JUNONIA_COL2:-60}"
 
-  readonly JUNONIA_VERSION="1.0.10"
+  readonly JUNONIA_VERSION="1.0.11dev"
 
   # Information Separator control characters (IS4 - IS1)
   readonly JUNONIA_FS="" # File   Separator (FS / IS4 / dec 28)
@@ -1818,7 +1922,6 @@ junonia_init () {
   export   JUNONIA_PATH
 
   # Get the script name by removing the path and any .sh suffix:
-  # script
   readonly JUNONIA_NAME="$(basename "$JUNONIA_TARGET" .sh)"
   export   JUNONIA_NAME
   readonly JUNONIA_CAPNAME="$(awk -v n="$JUNONIA_NAME" \
@@ -2010,9 +2113,11 @@ _junonia_set_args () {
   spec="$1"
   shift
 
+  readonly JUNONIA_ARGS="$*"
+
   # Spaces and newlines need to be ignored when passing the determined values
-  # back. The output will be separated by an RS that will allow this, which
-  # will be something like the Record Separator (control character 30).
+  # back. The output will be separated by Record Separator (control character
+  # 30).
   awk_prog='
     # All bools are either 1 or empty, but we accept the text true, 1, and the
     # presence of the flag (empty value) as true, and the text false and 0 as
@@ -2045,7 +2150,8 @@ _junonia_set_args () {
           # How many times this option has been seen
           opt_num[ARGV[i]]++
 
-          if(substr(ARGV[i+1], 1, 1) == "-") {
+          next_argchar = substr(ARGV[i+1], 1, 1)
+          if(next_argchar == "-" || next_argchar == ".") {
 
             # If the next thing is an option instead of a value, then set the
             # value to empty and move on.
@@ -2075,40 +2181,54 @@ _junonia_set_args () {
             i++
           }
         } else {
-          # This is a positional argument
-          for(i in opts) {
-            echoerr("all positional parameters must precede all options")
-            e = 1
-            exit
-          }
+          if(substr(ARGV[i], 1, 1) == ".") {
+            # This is a JSON argument
+            delete_val = make_jqprog(ARGV[i], ARGV[i+1])
 
-          p++
-
-          # Store and remove the argument
-          pos[i-1] = ARGV[i]
-          delete ARGV[i]
-
-          # Check for help subcommand
-          if(pos[i-1] == "help"   || pos[i-1] == "-h" || pos[i-1] == "-help" ||
-             pos[i-1] == "--help" || pos[i-1] == "/h" || pos[i-1] == "/help") {
-
-            # Build the function name to get help on
-            func_name = pos[1]
-
-            # e.g. cmd subcommand help
-            for(j=2; j<i-1; j++) {
-              func_name = func_name " " pos[j]
+            # Always delete the argument name. Optionally delete the next item,
+            # depending on if it was the next option (name was a flag) or an
+            # argument value.
+            delete ARGV[i]
+            if(delete_val) {
+              delete ARGV[i+1]
+              i++
+            }
+          } else {
+            # This is a positional argument
+            for(i in opts) {
+              echoerr("all positional parameters must precede all options")
+              e = 1
+              exit
             }
 
-            # Check the next arg to see if that should be the func for help
-            # e.g. cmd subcommand help subcommand2
-            if(ARGV[i+1] && ARGV[i+1] !~ /^-/) {
-              func_name = func_name " " ARGV[i+1]
-            }
+            p++
 
-            print "_junonia_help" JRS func_name
-            e = 0
-            exit
+            # Store and remove the argument
+            pos[i-1] = ARGV[i]
+            delete ARGV[i]
+
+            # Check for help subcommand
+            if(pos[i-1] == "help"   || pos[i-1] == "-h" || pos[i-1] == "-help" ||
+               pos[i-1] == "--help" || pos[i-1] == "/h" || pos[i-1] == "/help") {
+
+              # Build the function name to get help on
+              func_name = pos[1]
+
+              # e.g. cmd subcommand help
+              for(j=2; j<i-1; j++) {
+                func_name = func_name " " pos[j]
+              }
+
+              # Check the next arg to see if that should be the func for help
+              # e.g. cmd subcommand help subcommand2
+              if(ARGV[i+1] && ARGV[i+1] !~ /^-/) {
+                func_name = func_name " " ARGV[i+1]
+              }
+
+              print JGS "_junonia_help" JRS func_name
+              e = 0
+              exit
+            }
           }
         }
       }
@@ -2266,19 +2386,32 @@ _junonia_set_args () {
     # parameter value and increment to the next positional value.
     indented && $0 ~ /^ *[_A-Z0-9]+=*/ {
       if(config && pos[p] != "") {
+        # The config command cannot be used to set positional paramters
         echoerr("positional parameters cannot be set via config: " pos[p])
         e = 1
         exit
       }
 
+      if($1 == "JUNONIA_REST_FUNC") {
+        # This is a REST API call. The function name should be fully built. The
+        # function called will be _junonia_rest_func. Pass the function name to
+        # the rest func. Next parameter is the HTTP method, then the options.
+        args = args func_name JRS
+        func_name = "_junonia_rest_func"
+        p++
+      }
+
       if(pos[p] != "") {
+        # A value was supplied for this parameter
         args = args pos[p] JRS
         p++
       } else {
         n = index($0, "=")
         if(n) {
+          # A value was not supplied, but there is a default
           args = args substr($0, n + 1) JRS
         } else {
+          # No value was supplied, so provide an empty value
           args = args "" JRS
         }
       }
@@ -2331,10 +2464,14 @@ _junonia_set_args () {
       }
 
       # Output everything properly separated for processing.
-      print func_name JRS args
+      end_jqprog()
+
+      print jqprog JGS func_name JRS args
     }'
 
-  echo "$spec" | awk -v JRS="$JUNONIA_RS" -v JUS="$JUNONIA_US" \
+  echo "$spec" | awk -v JGS="$JUNONIA_GS" \
+                     -v JRS="$JUNONIA_RS" \
+                     -v JUS="$JUNONIA_US" \
                      "$JUNONIA_AWKS $awk_prog" - "$JUNONIA_NAME" "$@"
 }
 
@@ -2353,12 +2490,12 @@ junonia_run () {
     return $?
   fi
 
-  # Look for a filter function named
+  # Look for a filter function
   # ${JUNONIA_NAME}_junonia_filter (e.g. myscript_junonia_filter)
   if command -v ${JUNONIA_NAME}_junonia_filter >/dev/null 2>&1; then
     filter_func=${JUNONIA_NAME}_junonia_filter
   else
-    fulter_func=
+    filter_func=
   fi
 
   # Look in some particular paths for program markdown documentation.
@@ -2498,6 +2635,14 @@ junonia_runspec_filtered () {
 ### Run execution
 ###
 
+get_jqprog () {
+  echo "$1"
+}
+
+get_args () {
+  echo "$2"
+}
+
 _junonia_run_final () {
   echodebug "begin run final"
 
@@ -2563,17 +2708,53 @@ _junonia_run_final () {
     return 1
   fi
 
+  echodebug "arg_vals"
+  echodebug "$arg_vals"
+
+  # The results of argument parsing always comes back as:
+  # jqprog<GS>func_name<RS>arg1<RS><arg2>...
+  # To separate the jqprog from the rest, it's easiest to make two functions
+  # that send back $1 and $2, with IFS set to GS.
+  IFS=$JUNONIA_GS
+  JW_JQPROG="$(get_jqprog $arg_vals)"
+  args="$(get_args $arg_vals)"
+
+  # If a jq program was generated we assume that that feature is desired.
+  if [ -n "$JW_JQPROG" ]; then
+    if junonia_require_cmds jq; then
+      if ! JW_JSON="$(jq -nr "$JW_JQPROG")"; then
+        echoerr "unable to generate JSON value from supplied . options"
+        echoerr "generated program was:"
+        echoerr_raw "$JW_JQPROG"
+      fi
+    else
+      echoerr "arguments prefixed with '.' are used for JSON generation"
+      return 1
+    fi
+  else
+    JW_JSON=
+  fi
+
+  readonly JW_JQPROG
+  readonly JW_JSON
+
+  echodebug "generated jq program:"
+  echodebug_raw "$JW_JQPROG"
+  echodebug "resulting JSON:"
+  echodebug_raw "$JW_JSON"
+
   # Since we're handling values that can be explicitly blank / empty, and
-  # values that have whitespace that might need to be preserved, it's easiest
-  # to change the IFS to something other than space/tab/newline.
-  IFS="$JUNONIA_RS"
+  # values that have whitespace that might need to be preserved, change the IFS
+  # to RS, which is what separates the function name and arguments from each
+  # other.
+  IFS=$JUNONIA_RS
 
   # Pass the execution info to a filter function. This allows us to handle the
   # argument values as $@, and use shift to remove common options as specified
   # by the filter function. Using a user filter function is optional, and in
   # that case every function will receive every option; all common options in
   # the spec tree path.
-  _junonia_exec "$filter_func" "$md" "$spec_type" "$spec" $arg_vals
+  _junonia_exec "$filter_func" "$md" "$spec_type" "$spec" $args
 }
 
 # Receive function argument values, send them through the filter if needed,
@@ -2607,7 +2788,7 @@ _junonia_exec () {
 
   shift_n=0
 
-  # Meta-commands should not be put through the user filter.
+  # Meta-commands should not be put through filters.
   if func="$(_junonia_normalize_func "$func")"; then
     # If the user filter is getting skipped then a meta parameter is being run.
     # So the script's top level positional parameters and options need to be
@@ -2621,6 +2802,21 @@ _junonia_exec () {
       shift_n="$(echo "$spec" | awk "$awk_prog")"
     fi
   else
+    # If junonia_web if present, initialize and filter through it.
+    if _junonia_func_search "$JUNONIA_PATH" "junonia_web"; then
+      _jw_filter "$@"
+      shift_n=$?
+
+      # Args provided by junonia_web should be shifted off since they are common.
+      echodebug "jw_filter shifting $shift_n arguments"
+      i=0
+      n_args=$#
+      while [ $i -lt $n_args ] && [ $i -lt $shift_n ]; do
+        shift
+        i=$(( $i + 1 ))
+      done
+    fi
+
     # If there is a filter function and it is not getting skipped, then run it.
     if [ -n "$filter_func" ] && command -v "$filter_func" >/dev/null 2>&1; then
       $filter_func "$@"
@@ -2638,7 +2834,7 @@ _junonia_exec () {
   # The filter function might indicate via its return value, or the meta filter
   # by looking at the spec, that we should shift off some common (and possibly
   # other) values.
-  echodebug "Shifting $shift_n arguments"
+  echodebug "$filter_func shifting $shift_n arguments"
   i=0
   n_args=$#
   while [ $i -lt $n_args ] && [ $i -lt $shift_n ]; do
@@ -2683,10 +2879,10 @@ _junonia_exec () {
   i=0
 
   if ! command -v $JUNONIA_FUNC >/dev/null 2>&1; then
-    if ! _junonia_func_search "$JUNONIA_PATH"; then
+    if ! _junonia_func_search "$JUNONIA_PATH" "$JUNONIA_FUNC"; then
       for plugin in $(_junonia_plugin_list); do
         plugindir="$JUNONIA_CONFIGDIR/plugins/$plugin"
-        _junonia_func_search "$plugindir"
+        _junonia_func_search "$plugindir" "$JUNONIA_FUNC"
       done
     fi
   fi
@@ -2706,11 +2902,44 @@ _junonia_exec () {
   $JUNONIA_FUNC "$@"
 }
 
+_junonia_rest_func () {
+  func_name="$1"
+  shift
+
+  if command -v $func_name >/dev/null 2>&1; then
+    $func_name "$@"
+    return $?
+  fi
+
+  method="$1"
+  shift
+
+  url="$1"
+  shift
+
+  opts="--request $method"
+
+  case "$method" in
+    HEAD)
+      opts="$opts --head"
+      ;;
+    PUT|PATCH|POST)
+      if [ -n "$JW_JSON" ]; then
+        opts="$opts --data-raw $JW_JSON"
+      fi
+      ;;
+  esac
+
+  # Paging and other arguments to this call depend on previous setup of JW_*
+  # environment variables.
+  jw_request "$opts $url"
+}
+
 # Configure if debug messages will be printed.
 junonia_setdebug "$JUNONIA_DEBUG"
 
-# Set up the execution environment. Init is always safe to rerun init as it has
-# a guard. If junonia is copied into the bottom of a scirpt for single-file
+# Set up the execution environment. Init is always safe to rerun as it has a
+# guard. If junonia is copied into the bottom of a scirpt for single-file
 # distribution, for example, junonia_init will need to be run at the top. When
 # this one runs it will just return. Therefore, for single-file distributed
 # scripts, use an explicit exit statement before the junonia code to return
