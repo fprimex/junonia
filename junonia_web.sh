@@ -1,8 +1,54 @@
 #!/bin/sh
 
-##
-## Utility function declarations
-##
+###
+### Execution environment setup and management
+###
+
+jw_init () {
+  echodebug "begin jw init"
+
+  if [ -n "$JW_INIT" ]; then
+    # init has already been run
+    return
+  fi
+
+  if ! junonia_require_cmds jq; then
+    return 1
+  fi
+
+  readonly _JW_DEFAULT_CURLRC="$JUNONIA_CONFIGDIR/curlrc"
+  readonly JW_CURLRC="${JW_CURLRC:-"$_JW_DEFAULT_CURLRC"}"
+  export   JW_CURLRC
+
+  readonly _JW_DEFAULT_NPAGES=10000
+  export   JW_NPAGES="${JW_NPAGES:-"$_JW_DEFAULT_NPAGES"}"
+
+  # Indicate that init has happened
+  readonly JW_INIT=1
+}
+
+###
+### jq utility functions
+###
+
+# Recursively print a JSON object as indented plain text.
+# Call by including in a jq program and sending an object and starting indent:
+# leaf_print({"SOME TITLE": .any_attr, "indent": "  "})
+jw_jq_leafprint='
+  def leaf_print(o):
+    o.indent as $i |
+    $i + "  " as $ni |
+    o.errors as $e |
+    $e | keys[] as $k |
+      (select(($e[$k] | type) != "array" and ($e[$k] | type) != "object") |
+        "\($k): \($e[$k])"),
+      (select(($e[$k] | type) == "object") |
+        "\($k):",
+        "\(leaf_print({"errors": $e[$k], "indent": $ni}))"),
+      (select(($e[$k] | type) == "array") |
+        "\($k):",
+        "\(leaf_print({"errors": $e[$k], "indent": $ni}))");
+'
 
 # Replace quotes and newlines with escape characters to prepare the
 # value for insertion into JSON.
@@ -24,17 +70,19 @@ jw_escape_value () {
 }
 
 jw_request () {
-  # $1: optional integer parameter for number of next-pages to retrieve
+  # $1: optional integer parameter for number of pages to retrieve
   # $1 or $2 to $#: arguments to provide to curl
 
-  echodebug "tfh_api_call args: $@"
+  echodebug "jw_request args: $@"
 
-	if ! [ "$1" -eq "$1" ] >/dev/null 2>&1; then
-    npages="10000"
-  else
+  if [ "$1" -eq "$1" ] >/dev/null 2>&1; then
+    # First arg is an int of how many pages to retrieve
     npages="$1"
     shift
-	fi
+  else
+    # Not an int. Default to a very large number
+    npages="10000"
+  fi
 
   echodebug "npages: $npages"
   echodebug "curl args: $@"
@@ -91,22 +139,10 @@ jw_request () {
     4*|5*)
       echoerr "API request failed."
       echoerr_raw "HTTP status code: $resp_code"
-      if jsonapi_err="$(echo "$resp_body" | jq -r '
-        def leaf_print(o):
-          o.indent as $i |
-          $i + "  " as $ni |
-          o.errors as $e |
-          $e | keys[] as $k |
-            (select(($e[$k] | type) != "array" and ($e[$k] | type) != "object") |
-              "\($k): \($e[$k])"),
-            (select(($e[$k] | type) == "object") |
-              "\($k):",
-              "\(leaf_print({"errors": $e[$k], "indent": $ni}))"),
-            (select(($e[$k] | type) == "array") |
-              "\($k):",
-              "\(leaf_print({"errors": $e[$k], "indent": $ni}))");
 
-        leaf_print({"errors": .errors[], "indent": "  "})')"; then
+      jq_prog='leaf_print({"errors": .errors[], "indent": "  "})'
+      if jsonapi_err="$(echo "$resp_body" | jq -r "$jw_jq_leafprint
+                                                   $jq_prog")"; then
         echoerr_raw "JSON-API details:"
         echoerr_raw "$jsonapi_err"
       else
@@ -126,94 +162,11 @@ jw_request () {
   esac
 }
 
-check_required () {
-  if [ 0 -eq $# ]; then
-    check_for="org ws token address"
-  else
-    check_for="$*"
-  fi
 
-  missing=0
-  for i in $check_for; do
-    case "$i" in
-      org)
-        if [ -z "$org" ]; then
-          missing=1
-          echoerr 'TFE organization required.'
-          echoerr 'Set with $TFH_org or use -org'
-          echoerr
-        fi
-      ;;
-      ws)
-        if [ -z "$ws" ]; then
-          missing=1
-          echoerr 'TFE workspace name required.'
-          echoerr 'Set with $TFH_name or use -name, and optionally -prefix'
-          echoerr
-        fi
-      ;;
-      token)
-        if [ "$curl_token_src" = none ]; then
-          missing=1
-          echoerr 'TFE API token required.'
-          echoerr 'Set with `tfh curl-config`,  $TFH_token, or -token'
-          echoerr
-        fi
-      ;;
-      address)
-        # This really shouldn't happen. Someone would have to
-        # explicitly pass in an empty string to the command line
-        # argument.
-        if [ -z "$address" ]; then
-          missing=1
-          echoerr 'TFE hostname required.'
-          echoerr 'Set with -hostname or $TFH_hostname'
-          echoerr
-        fi
-      ;;
-    esac
-  done
-  return $missing
-}
+jw_filter () {
 
-tfh_junonia_filter () {
-  readonly TFH_DEFAULT_CURLRC="$JUNONIA_CONFIGDIR/curlrc"
-
-  readonly org="$1"
-  readonly name="$2"
-  readonly prefix="$3"
   readonly token="$4"
   readonly curlrc="${5:-"$TFH_DEFAULT_CURLRC"}"
-  readonly hostname="$6"
-
-  # Waterfall verbosity levels down
-  readonly vvverbose="$9"
-  readonly vverbose="${8:-$vvverbose}"
-  readonly verbose="${7:-$vverbose}"
-
-  readonly address="https://$hostname"
-  readonly ws="$prefix$name"
-
-  echov "org:       $org"
-  echov "prefix:    $prefix"
-  echov "workspace: $name"
-  echov "hostname:  $hostname"
-  echov "address:   $address"
-  echov "verbose:   $verbose"
-  echov "vverbose:  $vverbose"
-  echov "vvverbose: $vvverbose"
-
-  curl_token_src=
-
-  # curlrc argument at the command line takes highest precedence
-  if echo "$TFH_CMDLINE" | grep -qE -- '-curlrc'; then
-    echodebug "explicit -curlrc"
-    if [ -f "$curlrc" ]; then
-      curl_token_src=curlrc
-    else
-      curl_token_src=curlrc_not_found
-    fi
-  fi
 
   # token at the command line takes second highest precedence
   if [ -z "$curl_token_src" ] && [ -n "$token" ] &&
