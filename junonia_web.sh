@@ -1,6 +1,5 @@
 #!/bin/sh
 
-<<<<<<< HEAD
 ###
 ### Execution environment setup and management
 ###
@@ -50,22 +49,6 @@ jw_jq_leafprint='
         "\($k):",
         "\(leaf_print({"errors": $e[$k], "indent": $ni}))");
 '
-=======
-junonia_web () {
-  _junonia_cmds="  -curlrc CURLRC=$JUNONIA_CONFIGDIR/curlrc
-  -oauth OAUTH
-  -basic-auth USER:PASSWORD
-$_junonia_cmds
-  "
-
-  readonly JW_INIT=1
-  export JW_INIT
-}
-
-##
-## Utility function declarations
-##
->>>>>>> ca4e1f31477dd4482e9e0755c10880625945574d
 
 # Pretty print JSON as text with each key/value on a single line and no
 # brackets, quotes, or other formatting.
@@ -73,22 +56,6 @@ jw_tree_print () {
   # $1: JSON body
   # $2: Optional selector for jq to make the root
 
-<<<<<<< HEAD
-jw_request () {
-  # $1: optional integer parameter for number of pages to retrieve
-  # $1 or $2 to $#: arguments to provide to curl
-
-  echodebug "jw_request args: $@"
-
-  if [ "$1" -eq "$1" ] >/dev/null 2>&1; then
-    # First arg is an int of how many pages to retrieve
-    npages="$1"
-    shift
-  else
-    # Not an int. Default to a very large number
-    npages="10000"
-  fi
-=======
   # If a selector was given, select that as the root, otherwise take everything
   if [ -n "$2" ]; then
     if ! jw_tree_root="$(printf '%s' "$1" | jq -r "$2")"; then
@@ -145,7 +112,6 @@ jw_request () {
     echodebug "page limit is $1"
     npages="$1"
     shift
->>>>>>> ca4e1f31477dd4482e9e0755c10880625945574d
 
     # If 0 was supplied get all the pages using a very large number
     if [ $npages = 0 ]; then
@@ -254,18 +220,9 @@ jw_request () {
     4*|5*)
       echoerr "API request failed."
       echoerr_raw "HTTP status code: $resp_code"
-<<<<<<< HEAD
-
-      jq_prog='leaf_print({"errors": .errors[], "indent": "  "})'
-      if jsonapi_err="$(echo "$resp_body" | jq -r "$jw_jq_leafprint
-                                                   $jq_prog")"; then
-        echoerr_raw "JSON-API details:"
-        echoerr_raw "$jsonapi_err"
-=======
       if json_err="$(jw_tree_print "$resp_body" "$JW_ERR_SELECTOR")"; then
         echoerr_raw "Details:"
         echoerr_raw "$json_err"
->>>>>>> ca4e1f31477dd4482e9e0755c10880625945574d
       else
         echoerr "Response:"
         echoerr_raw "$resp_body"
@@ -283,13 +240,6 @@ jw_request () {
   esac
 }
 
-<<<<<<< HEAD
-
-jw_filter () {
-
-  readonly token="$4"
-  readonly curlrc="${5:-"$TFH_DEFAULT_CURLRC"}"
-=======
 _jw_filter () {
   readonly JW_DEFAULT_CURLRC="$JUNONIA_CONFIGDIR/curlrc"
 
@@ -298,7 +248,6 @@ _jw_filter () {
   readonly JW_BASIC_AUTH="$3"
 
   JW_CURL_AUTH_SRC=none
->>>>>>> ca4e1f31477dd4482e9e0755c10880625945574d
 
   if [ -f "$curlrc" ]; then
     JW_CURL_AUTH_SRC=curlrc
