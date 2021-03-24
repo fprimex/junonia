@@ -18,10 +18,9 @@ jw_init () {
 
   readonly _JW_DEFAULT_CURLRC="$JUNONIA_CONFIGDIR/curlrc"
   readonly JW_CURLRC="${JW_CURLRC:-"$_JW_DEFAULT_CURLRC"}"
-  export   JW_CURLRC
 
   readonly _JW_DEFAULT_NPAGES=10000
-  export   JW_NPAGES="${JW_NPAGES:-"$_JW_DEFAULT_NPAGES"}"
+  JW_NPAGES="${JW_NPAGES:-"$_JW_DEFAULT_NPAGES"}"
 
   # Indicate that init has happened
   readonly JW_INIT=1
@@ -88,6 +87,79 @@ jw_tree_print () {
   fi
 }
 
+junonia_web () {
+  func_name="$1"
+  shift
+  method="$1"
+  shift
+  url="$1"
+  shift
+
+  echodebug "jw_web $func_name $method $url"
+
+  # Determine how many upper case options there are to replace in the url
+  n_opts="$(echo "$url" | awk '{print gsub(/{[-_\.A-Z]+}/,"")}')"
+
+  # For that many options, shift off values and substitute the parameter.
+  # Parameters are of the form FOO=bar, where FOO is always uppercase.
+  i=0
+  while [ $i -lt $# ] && [ $i -lt $n_opts ]; do
+    url="$(echo "$url" | awk -v param="$1" '{
+      split(param, a, "=")
+      sub("{" a[1] "}", a[2])
+      print
+    }')"
+    i=$(( $i+1 ))
+    shift
+  done
+
+  echodebug "final url: $url"
+
+  i=0
+  query=
+  while [ $i -lt $# ]; do
+    if [ -n "$1" ]; then
+      query="$query&$1"
+    fi
+    i=$(( $i+1 ))
+    shift
+  done
+
+  if [ -n "$query" ]; then
+    query="?$query"
+  fi
+
+  if command -v ${JUNONIA_NAME}_jw_callback >/dev/null 2>&1; then
+    echodebug "global callback ${JUNONIA_NAME}_jw_callback present"
+    cb=${JUNONIA_NAME}_jw_callback
+  elif _junonia_load_func $func_name; then
+    echodebug "located callback $func_name"
+    cb=$func_name
+  else
+    echodebug "no callback found"
+    cb=
+  fi
+
+  if [ -n "$cb" ]; then
+    echodebug "making request with callback $cb"
+    if  [ -n "$JW_JSON" ]; then
+      $cb "$(jw_request "$url$query" -X "$method" -d "$JW_JSON")"
+    else
+      $cb "$(jw_request "$url$query" -X "$method")"
+    fi
+  else
+    # This may seem excessive and redundant, but if there is no callback
+    # then let's not capture the output of jw_request, but rather stream
+    # it back, since there may be many curl calls streaming into a pipe.
+    echodebug "making request without callback"
+    if  [ -n "$JW_JSON" ]; then
+      jw_request "$url$query" -X "$method" -d "$JW_JSON"
+    else
+      jw_request "$url$query" -X "$method"
+    fi
+  fi
+}
+
 # Perform a curl using the configured authentication and given options.
 # Optionally supply a number and jq selector to retrieve additional pages.
 # Usage:
@@ -102,7 +174,7 @@ jw_tree_print () {
 # jq_request <integer pages to retrieve> <jq selector> <curl url and options>
 #
 # Perform a page request and get next pages using a callback
-# jq_request <function name> <curl url and options>
+# jq_request <paging function name> <curl url and options>
 #
 jw_request () {
   echodebug "jw_request args: $@"
@@ -187,10 +259,20 @@ jw_request () {
                    --user "$JW_CURL_BASIC" \
                    $@)"
       ;;
+    *)
+      echovvv "curl --header \"Content-Type: $JW_CONTENT_TYPE\"" >&2
+      echovvv "     --user \"$JW_CURL_BASIC\"" >&2
+      echovvv "     $*" >&2
+
+      resp="$(curl $curl_silent -w '\nhttp_code: %{http_code}\n' \
+                   --header "Content-Type: $JW_CONTENT_TYPE" \
+                   $@)"
+      ;;
   esac
 
   resp_body="$(printf '%s' "$resp" | awk '!/^http_code/; /^http_code/{next}')"
   resp_code="$(printf '%s' "$resp" | awk '!/^http_code/{next} /^http_code/{print $2}')"
+  JW_LAST_RESP_CODE="$resp_code"
 
   echodebug "API request http code: $resp_code. Response:"
   echodebug_raw "$resp_body"
@@ -201,20 +283,22 @@ jw_request () {
       printf "%s" "$resp_body"
 
       if [ -n $selector ]; then
+        echodebug "selector"
         next_page="$(printf "%s" "$resp_body" | \
                      jq -r "$selector" 2>&3)"
+        echodebug "next page: $next_page"
       elif [ -n $callback ]; then
+        echodebug "callback"
         next_page="$($callback "$resp_code" "$resp_body")"
       else
+        echodebug "no callback, no selector"
       fi
 
       if [ -n "$next_page" ] && [ "$next_page" != null ] &&
          ! [ "$npages" -le 1 ]; then
-        echodebug "next page: $next_page"
-        echodebug "npages: $npages"
-        next_link="$(printf "%s" "$resp_body" | jq -r "$selector")"
         echodebug "next link: $next_link"
-        jw_request $((--npages)) "$selector" "$next_link"
+        echodebug "npages: $npages (will be decremented by 1)"
+        jw_request $((--npages)) "$selector" "$next_page"
       fi
       ;;
     4*|5*)
@@ -280,6 +364,7 @@ _jw_filter () {
   fi
 
   if [ -z "$JW_CURL_AUTH_SRC" ]; then
+    echodebug "jw_curl_auth_src"
   fi
 
   case $JW_CURL_AUTH_SRC in
