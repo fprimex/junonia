@@ -2543,9 +2543,9 @@ _junonia_set_args () {
       print jqprog JGS func_name JRS args
     }'
 
-  echo "$spec" | awk -v JGS="$JUNONIA_GS" \
-                     -v JRS="$JUNONIA_RS" \
-                     -v JUS="$JUNONIA_US" \
+  echo "$spec" | awk -v "JGS=$JUNONIA_GS" \
+                     -v "JRS=$JUNONIA_RS" \
+                     -v "JUS=$JUNONIA_US" \
                      "$JUNONIA_AWKS $awk_prog" - "$JUNONIA_NAME" "$@"
 }
 
@@ -2835,6 +2835,8 @@ _junonia_run_final () {
 # then execute the specified function with the values.
 _junonia_exec () {
   echodebug "begin exec"
+  echodebug "exec args:"
+  echodebug_raw "$@"
 
   # Each value from the parsed args are now their own word, so the IFS can go
   # back to normal.
@@ -2854,6 +2856,17 @@ _junonia_exec () {
 
   func="$1"
   shift
+
+  if [ "$func" = "junonia_web" ]; then
+    # Need to pop these off and put them back so the filter function,
+    # if any, can correctly operate on the right options.
+    jw_func="$1"
+    shift
+    jw_method="$1"
+    shift
+    jw_url="$1"
+    shift
+  fi
 
   if [ -z "$func" ]; then
     echoerr "no operation given to perform"
@@ -2909,12 +2922,16 @@ _junonia_exec () {
   # by looking at the spec, that we should shift off some common (and possibly
   # other) values.
   echodebug "$filter_func shifting $shift_n arguments"
+  echodebug "args before shifting:"
+  echodebug_raw "$@"
   i=0
   n_args=$#
   while [ $i -lt $n_args ] && [ $i -lt $shift_n ]; do
     shift
     i=$(( $i + 1 ))
   done
+  echodebug "args after shifting:"
+  echodebug_raw "$@"
 
   if [ "$func" = "$JUNONIA_NAME" ]; then
     func_location="$(command -v "$func")"
@@ -2936,20 +2953,17 @@ _junonia_exec () {
   fi
 
   # At this point, all of the following are set and fixed.
-  JUNONIA_CMD="$(echo "$func" | sed 's/_/ /g')"
-  JUNONIA_FUNC="$(echo "$func" | sed 's/-/_/g')"
-  JUNONIA_MD="$md"
-  JUNONIA_SPEC_TYPE="$spec_type"
-  JUNONIA_SPEC="$spec"
+  readonly JUNONIA_CMD="$(echo "$func" | sed 's/_/ /g')"
+  readonly JUNONIA_FUNC="$(echo "$func" | sed 's/-/_/g')"
+  readonly JUNONIA_MD="$md"
+  readonly JUNONIA_SPEC_TYPE="$spec_type"
+  readonly JUNONIA_SPEC="$spec"
 
-  readonly JUNONIA_CMD
-  readonly JUNONIA_FUNC
-  readonly JUNONIA_MD
-  readonly JUNONIA_SPEC_TYPE
-  readonly JUNONIA_SPEC
-
-  echodebug "$JUNONIA_CMD"
-  echodebug "$JUNONIA_FUNC"
+  echodebug "JUNONIA_CMD      : $JUNONIA_CMD"
+  echodebug "JUNONIA_FUNC     : $JUNONIA_FUNC"
+  echodebug "JUNONIA_SPEC_TYPE: $JUNONIA_SPEC_TYPE"
+  echodebug "args:"
+  echodebug_raw "$@"
 
   # If the command hasn't already been sourced or defined somewhere, try to
   # discover it by checking for files corresponding to the function name.
@@ -2957,14 +2971,13 @@ _junonia_exec () {
     return 1
   fi
 
-  echodebug "JUNONIA_CMD      : $JUNONIA_CMD"
-  echodebug "JUNONIA_FUNC     : $JUNONIA_FUNC"
-  echodebug "JUNONIA_SPEC_TYPE: $JUNONIA_SPEC_TYPE"
-  echodebug "args: $*"
-
   # A function file was found and sourced, and the function was found. Execute
   # the function.
-  $JUNONIA_FUNC "$@"
+  if [ "$func" = "junonia_web" ]; then
+    $JUNONIA_FUNC "$jw_func" "$jw_method" "$jw_url" "$@"
+  else
+    $JUNONIA_FUNC "$@"
+  fi
 }
 
 # Configure if debug messages will be printed.

@@ -95,23 +95,50 @@ junonia_web () {
   url="$1"
   shift
 
-  echodebug "jw_web $func_name $method $url"
+  echodebug "junonia_web $func_name $method $url"
 
-  # Determine how many upper case options there are to replace in the url
+  # Determine how many upper case parameters there are to replace in the url
   n_opts="$(echo "$url" | awk '{print gsub(/{[-_\.A-Z]+}/,"")}')"
+
+  # See if there are additional parameters coming from elsewhere.
+  if [ -n "$JW_ADDL_PARAMS" ]; then
+    url="$(echo "$url" | awk -v "JRS=$JUNONIA_RS" -v "params=$JW_ADDL_PARAMS" '{
+      split(params, addl_params, JRS)
+      for(p in addl_params) {
+        split(addl_params[p], a, "=")
+        did_sub = sub("{" a[1] "}", a[2])
+        subs = subs + did_sub
+      }
+      print
+      exit subs
+    }')"
+    addl_subs=$?
+  fi
+
+  # Remove the number of upper case parameters replaced by addl parameters
+  n_opts=$(( $n_opts - $addl_subs ))
 
   # For that many options, shift off values and substitute the parameter.
   # Parameters are of the form FOO=bar, where FOO is always uppercase.
   i=0
+  n_subs=0
   while [ $i -lt $# ] && [ $i -lt $n_opts ]; do
-    url="$(echo "$url" | awk -v param="$1" '{
+    url="$(echo "$url" | awk -v "param=$1" '{
       split(param, a, "=")
-      sub("{" a[1] "}", a[2])
+      did_sub = sub("{" a[1] "}", a[2])
       print
+      exit did_sub
     }')"
+    n_subs=$(( $n_subs + $? ))
     i=$(( $i+1 ))
     shift
   done
+
+  if [ "$n_subs" -lt "$n_opts" ]; then
+    echoerr "Mismatch on number of parameters and url"
+    echoerr "Cannot continue with $url"
+    return 1
+  fi
 
   echodebug "final url: $url"
 
@@ -124,6 +151,10 @@ junonia_web () {
     i=$(( $i+1 ))
     shift
   done
+
+  if [ -n "$JW_ADDL_OPTIONS" ]; then
+    query="$query&$JW_ADDL_OPTIONS"
+  fi
 
   if [ -n "$query" ]; then
     query="?$query"
