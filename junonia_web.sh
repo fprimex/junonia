@@ -102,6 +102,7 @@ junonia_web () {
 
   # See if there are additional parameters coming from elsewhere.
   if [ -n "$JW_ADDL_PARAMS" ]; then
+    echodebug "addl params: $JW_ADDL_PARAMS"
     url="$(echo "$url" | awk -v "JRS=$JUNONIA_RS" -v "params=$JW_ADDL_PARAMS" '{
       split(params, addl_params, JRS)
       for(p in addl_params) {
@@ -171,23 +172,15 @@ junonia_web () {
     cb=
   fi
 
+  echodebug "JW_JSON:"
+  echodebug_raw "$JW_JSON"
+
   if [ -n "$cb" ]; then
     echodebug "making request with callback $cb"
-    if  [ -n "$JW_JSON" ]; then
-      $cb "$(jw_request "$url$query" -X "$method" -d "$JW_JSON")"
-    else
-      $cb "$(jw_request "$url$query" -X "$method")"
-    fi
+    $cb "$(jw_request "$url$query" -X "$method")"
   else
-    # This may seem excessive and redundant, but if there is no callback
-    # then let's not capture the output of jw_request, but rather stream
-    # it back, since there may be many curl calls streaming into a pipe.
     echodebug "making request without callback"
-    if  [ -n "$JW_JSON" ]; then
-      jw_request "$url$query" -X "$method" -d "$JW_JSON"
-    else
-      jw_request "$url$query" -X "$method"
-    fi
+    jw_request "$url$query" -X "$method"
   fi
 }
 
@@ -259,45 +252,59 @@ jw_request () {
     return 0
   fi
 
+  JW_CURL_AUTH_SRC=curlrc
+  JW_CURLRC="$JUNONIA_CONFIGDIR/curlrc"
+  JW_CONTENT_TYPE="application/vnd.api+json"
+
+  if  [ -n "$JW_JSON" ]; then
+    post_data="-d"
+  else
+    post_data=
+  fi
+
   case $JW_CURL_AUTH_SRC in
     curlrc)
       echovvv "curl --header \"Content-Type: $JW_CONTENT_TYPE\"" >&2
       echovvv "     --config \"$JW_CURLRC\"" >&2
       echovvv "     $*" >&2
+      echovvv "     $post_data $JW_JSON" >&2
 
       resp="$(curl $curl_silent -w '\nhttp_code: %{http_code}\n' \
                    --header "Content-Type: $JW_CONTENT_TYPE" \
-                   --config "$curlrc" \
-                   $@)"
+                   --config "$JW_CURLRC" \
+                   $post_data "$JW_JSON" $@)"
       ;;
     oauth)
       echovvv "curl --header \"Content-Type: $JW_CONTENT_TYPE\"" >&2
       echovvv "     --header \"Authorization: Bearer \$JW_CURL_OAUTH\"" >&2
       echovvv "     $*" >&2
+      echovvv "     $post_data $JW_JSON" >&2
 
       resp="$(curl $curl_silent -w '\nhttp_code: %{http_code}\n' \
                    --header "Content-Type: $JW_CONTENT_TYPE" \
                    --header "Authorization: Bearer $JW_OAUTH" \
-                   $@)"
+                   $post_data "$JW_JSON" $@)"
       ;;
     basic_auth)
       echovvv "curl --header \"Content-Type: $JW_CONTENT_TYPE\"" >&2
       echovvv "     --user \"$JW_CURL_BASIC\"" >&2
       echovvv "     $*" >&2
+      echovvv "     $post_data $JW_JSON" >&2
 
       resp="$(curl $curl_silent -w '\nhttp_code: %{http_code}\n' \
                    --header "Content-Type: $JW_CONTENT_TYPE" \
                    --user "$JW_CURL_BASIC" \
-                   $@)"
+                   $post_data "$JW_JSON" $@)"
       ;;
     *)
       echovvv "curl --header \"Content-Type: $JW_CONTENT_TYPE\"" >&2
       echovvv "     --user \"$JW_CURL_BASIC\"" >&2
       echovvv "     $*" >&2
+      echovvv "     $post_data $JW_JSON" >&2
 
       resp="$(curl $curl_silent -w '\nhttp_code: %{http_code}\n' \
                    --header "Content-Type: $JW_CONTENT_TYPE" \
-                   $@)"
+                   $post_data "$JW_JSON" $@)"
       ;;
   esac
 
@@ -313,16 +320,16 @@ jw_request () {
       # Output the response here
       printf "%s" "$resp_body"
 
-      if [ -n $selector ]; then
+      if [ -n "$selector" ]; then
         echodebug "selector"
         next_page="$(printf "%s" "$resp_body" | \
                      jq -r "$selector" 2>&3)"
         echodebug "next page: $next_page"
-      elif [ -n $callback ]; then
+      elif [ -n "$callback" ]; then
         echodebug "callback"
         next_page="$($callback "$resp_code" "$resp_body")"
       else
-        echodebug "no callback, no selector"
+        echodebug "no callback, no selector in jq_request"
       fi
 
       if [ -n "$next_page" ] && [ "$next_page" != null ] &&
@@ -356,23 +363,25 @@ jw_request () {
 }
 
 _jw_filter () {
-  readonly JW_DEFAULT_CURLRC="$JUNONIA_CONFIGDIR/curlrc"
-
-  JW_CURLRC="${1:-"$JW_DEFAULT_CURLRC"}"
-  readonly JW_OAUTH="$2"
-  readonly JW_BASIC_AUTH="$3"
-
-  JW_CURL_AUTH_SRC=none
-
-  if [ -f "$curlrc" ]; then
-    JW_CURL_AUTH_SRC=curlrc
-  fi
-
-  readonly JW_CURLRC
-
   echodebug "JW_CURLRC:     $JW_CURLRC"
   echodebug "JW_OAUTH:      $JW_OAUTH"
   echodebug "JW_BASIC_AUTH: $JW_BASIC_AUTH"
+
+  readonly JW_DEFAULT_CURLRC="$JUNONIA_CONFIGDIR/curlrc"
+
+  JW_CURL_AUTH_SRC=none
+
+  # If more than one option is present bail out
+  for opt in "$JW_CURLRC" "$JW_OAUTH" "$JW_BASIC_AUTH"; do
+    i=
+  done
+
+  # If nothing is specified but there is a default curlrc then use that
+  if [ -z "$JW_CURLRC" ] && [ -z "$JW_OAUTH" ] &&
+     [ -z "$JW_BASIC_AUTH" ] && [ -f "$JW_DEFAULT_CURLRC" ]; then
+    JW_CURLRC="$JW_DEFAULT_CURLRC"
+    JW_CURL_AUTH_SRC=curlrc
+  fi
 
   # OAuth at the command line takes second highest precedence
   if [ -z "$JW_CURL_AUTH_SRC" ] && [ -n "$JW_OAUTH" ] &&
@@ -427,4 +436,3 @@ _jw_filter () {
 
   return 9
 }
-
