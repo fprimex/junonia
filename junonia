@@ -443,7 +443,7 @@ junonia_awk_make_jqprog='
 
     } else {
 
-      if(substr(name, length(name-2), 2) == "[]") {
+      if(substr(name, length(name)-1, 2) == "[]") {
         sub(/\[\]$/, "", name)
         jqprog = jqprog "\n" name " |= . + [" make_jqarg(val) "] |"
       } else {
@@ -2655,12 +2655,20 @@ junonia_run () {
       junonia_runspec_filtered "$filter_func" "$spec" "$@"
       return $?
     else
-      echoerr "program argument spec was empty"
+      echoerr "program argument spec function returned empty"
       return 1
     fi
+  else
+    # If no spec has been found, make the spec just the script name.
+    # This allows for script to just source junonia and run a single
+    # top level command without any additional configuration.
+    echodebug "setting spec to script name: $JUNONIA_NAME"
+    spec="$JUNONIA_NAME"
+    junonia_runspec_filtered "$filter_func" "$spec" "$@"
+    return $?
   fi
 
-  echoerr "unable to locate docs or spec needed to run"
+  echoerr "unable to locate program specification required to run"
   return 1
 }
 
@@ -2974,7 +2982,7 @@ _junonia_exec () {
     echodebug_raw "$JW_JQPROG"
     if junonia_require_cmds jq; then
       if ! JW_JSON="$(jq -nr "$JW_JQPROG")"; then
-        echoerr "unable to generate JSON value from supplied . options"
+        echoerr "unable to generate JSON value from supplied '.' options"
         echoerr "generated program was:"
         echoerr_raw "$JW_JQPROG"
       else
