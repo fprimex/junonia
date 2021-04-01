@@ -12,19 +12,37 @@ jw_init () {
     return
   fi
 
-  if ! junonia_require_cmds jq; then
+  if ! junonia_require_cmds jq curl; then
     return 1
   fi
 
-  readonly _JW_DEFAULT_CURLRC="$JUNONIA_CONFIGDIR/curlrc"
-  readonly JW_CURLRC="${JW_CURLRC:-"$_JW_DEFAULT_CURLRC"}"
+  readonly JW_DEFAULT_CURLRC="$JUNONIA_CONFIGDIR/curlrc"
+  readonly JW_CURLRC="${JW_CURLRC:-"$JW_DEFAULT_CURLRC"}"
 
-  readonly _JW_DEFAULT_NPAGES=10000
-  JW_NPAGES="${JW_NPAGES:-"$_JW_DEFAULT_NPAGES"}"
+  JW_AUTH_SRC=
+  if [ -n "$JW_AUTH" ]; then
+    JW_AUTH_SRC=env
+    echodebug "explicit curl auth provided: $JW_AUTH"
+  else
+    if [ -f "$JW_CURLRC" ]; then
+      JW_AUTH_SRC=curlrc
+      echodebug "authenticating curl with curlrc $JW_CURLRC"
+      JW_AUTH="--config $JW_CURLRC"
+    elif [ -n "$JW_OAUTH" ]; then
+      JW_AUTH_SRC=oauth
+      echodebug "authenticating curl with oauth token"
+      JW_AUTH="--oauth2-bearer $JW_OAUTH"
+    elif [ -n "$JW_BASIC" ]; then
+      JW_AUTH_SRC=basic
+      echodebug "authenticating curl with basic login info"
+      JW_AUTH="--user $JW_BASIC"
+    fi
+  fi
 
   # Indicate that init has happened
   readonly JW_INIT=1
 }
+
 
 ###
 ### jq utility functions
@@ -92,6 +110,8 @@ junonia_web () {
   shift
   method="$1"
   shift
+  content_t="$1"
+  shift
   url="$1"
   shift
 
@@ -114,6 +134,8 @@ junonia_web () {
       exit subs
     }')"
     addl_subs=$?
+  else
+    addl_subs=0
   fi
 
   # Remove the number of upper case parameters replaced by addl parameters
@@ -143,30 +165,36 @@ junonia_web () {
 
   echodebug "final url: $url"
 
+  echodebug "remaining arguments ($#):"
+  echodebug_raw $@
   i=0
   query=
-  while [ $i -lt $# ]; do
-    if [ -n "$1" ]; then
+  while [ $i -le $# ]; do
+    if [ -n "${1#*=}" ]; then
       query="$query&$1"
     fi
     i=$(( $i+1 ))
     shift
   done
+  echodebug "remaining arguments ($#):"
+  echodebug_raw $@
 
   if [ -n "$JW_ADDL_OPTIONS" ]; then
     query="$query&$JW_ADDL_OPTIONS"
   fi
 
   if [ -n "$query" ]; then
-    query="?$query"
+    query="?${query#?}"
   fi
 
-  if command -v ${JUNONIA_NAME}_jw_callback >/dev/null 2>&1; then
-    echodebug "global callback ${JUNONIA_NAME}_jw_callback present"
-    cb=${JUNONIA_NAME}_jw_callback
-  elif _junonia_load_func $func_name; then
+  echodebug "final query: $query"
+
+  if _junonia_load_func $func_name; then
     echodebug "located callback $func_name"
     cb=$func_name
+  elif command -v ${JUNONIA_NAME}_jw_callback >/dev/null 2>&1; then
+    echodebug "global callback ${JUNONIA_NAME}_jw_callback present"
+    cb=${JUNONIA_NAME}_jw_callback
   else
     echodebug "no callback found"
     cb=
@@ -175,13 +203,25 @@ junonia_web () {
   echodebug "JW_JSON:"
   echodebug_raw "$JW_JSON"
 
-  if [ -n "$cb" ]; then
-    echodebug "making request with callback $cb"
-    $cb "$(jw_request "$url$query" -X "$method")"
-  else
-    echodebug "making request without callback"
-    jw_request "$url$query" -X "$method"
-  fi
+  case "$method" in
+    POST|PUT|PATCH)
+      if [ -n "$cb" ]; then
+        echodebug "making $method request with callback $cb"
+        $cb "$(jw_request "$method" "$JW_JSON" "$content_t" "$url$query")"
+      else
+        echodebug "making $method request without callback"
+        jw_request "$method" "$JW_JSON" "$content_t" "$url$query"
+      fi
+      ;;
+    *)
+			if [ -n "$cb" ]; then
+				echodebug "making $method request with callback $cb"
+				$cb "$(jw_request "$method" "$content_t" "$url$query")"
+			else
+				echodebug "making $method request without callback"
+				jw_request "$method" "$content_t" "$url$query"
+			fi
+  esac
 }
 
 # Perform a curl using the configured authentication and given options.
@@ -189,250 +229,245 @@ junonia_web () {
 # Usage:
 #
 # Perform one page request and return the result
-# jq_request <curl url and options>
+# jq_request <method> <method specific options> <curl url and options>
 #
 # Perform a page request and get pages using the selected url up to a default
-# jq_request <jq selector> <curl url and options>
+# jq_request <jq selector> <method> <method specific options> \
+#            <curl url and options>
 #
 # Perform a page request and get pages using the selected url up to a limit
-# jq_request <integer pages to retrieve> <jq selector> <curl url and options>
+# jq_request <integer pages to retrieve> <jq selector> <method> \
+#            <method specific options> <curl url and options>
 #
 # Perform a page request and get next pages using a callback
-# jq_request <paging function name> <curl url and options>
+# jq_request <paging function name> <method> <method specific options> \
+#            <curl url and options>
 #
+# npages                         = error
+#           selector             = use selector, get all pages 
+#                       callback = use callback
+# npages && selector             = use selector, get exactly npages
+# npages &&             callback = error
+#           selector && callback = error
+# 
+# jw_request [method [payload]] [content_t] url
+#            [npages] [selector] [callback] [curl options]
 jw_request () {
   echodebug "jw_request args: $@"
+
+  _method=
+  _url=
+  _content_t=
+  _payload=
+  _npages=
+  _selector=
+  _callback=
+
+  case "$1" in
+    GET|HEAD|DELETE|CONNECT|OPTIONS|TRACE)
+      _method="$1"
+      shift
+      echodebug "no special processing required for method $_method"
+      ;;
+    POST|PUT|PATCH)
+      _method="$1"
+      shift
+      _payload="$1"
+      shift
+      if [ -z "$_payload" ]; then
+        echodebug "WARNING: EMPTY PAYLOAD"
+        # Not going to error. I have seen weirder things than requiring
+        # an empty _payload on a POST.
+      fi
+      ;;
+    http*)
+      _method=GET
+      _url="$1"
+      shift
+      ;;
+  esac
+
+  if [ -z "$_url" ]; then
+    _content_t="$1"
+    shift
+
+    _url="$1"
+    shift
+  fi
+
+  if [ -z "$_content_t" ]; then
+    _content_t="${JW_CONTENT_TYPE:-"application/octet-stream"}"
+  fi
 
   # Was a page limit provided?
   if [ "$1" -eq "$1" ] >/dev/null 2>&1; then
     echodebug "page limit is $1"
-    npages="$1"
+    _npages="$1"
     shift
 
     # If 0 was supplied get all the pages using a very large number
-    if [ $npages = 0 ]; then
+    if [ $_npages = 0 ]; then
       echodebug "getting all pages due to page limit 0"
-      npages=100000
+      _npages=100000
     fi
   fi
 
-  # Was a selector provided?
+  # Was a _selector provided?
   if [ -z "${1##.*}" ]; then
     echodebug "selector provided for paging: $1"
-    selector="$1"
+    _selector="$1"
     shift
-
-    # Get all the pages using a very large number
-    if [ -z "$npages" ]; then
-      echodebug "selector provided but no page limit, so getting all pages"
-      npages=100000
-    fi
   fi
 
-  # Was a callback supplied?
+  # Was a _callback supplied?
   echodebug "checking to see if "$1" is a callback"
   if [ junonia_require_cmds "$1" 2>/dev/null ]; then
-    echodebug "found callback command"
-    callback="$1"
+    echodebug "found callback command $1"
+    _callback="$1"
     shift
   fi
 
-  # No page limit, no selector. Get one page.
-  if [ -z "$npages" ] && [ -z "$selector" ]; then
-    echodebug "options specify getting a single page"
-    npages=1
-  fi
+  echodebug "method:   $_method"
+  echodebug "url:      $_url"
+  echodebug "npages:   $_npages"
+  echodebug "selector: $_selector"
+  echodebug "callback: $_callback"
+  echodebug "remaining args to curl: $@"
+  echodebug "payload:"
+  echodebug_raw "$_payload"
 
-  echodebug "npages:   $npages"
-  echodebug "selector: $selector"
-  echodebug "callback: $callback"
-  echodebug "curl args: $@"
- 
-  if [ "$npages" -lt 1 ]; then
+  case -$_npages:$_selector:$_callback- in
+  -::-)
+    echodebug "no page limit, no selector, no callback"
+    echodebug "will make the single request"
+    ;;
+  -?*::-)
+    echodebug "npages"
+    echoerr "page limit given but no selector or callback for request"
+    return 1
+    ;;
+  -:?*:-)
+    echodebug "selector only, will get all pages"
+    _npages=100000
+    echodebug "updated npages:   $_npages"
+    ;;
+  -::?*-)
+    echodebug "callback only, will get all pages"
+    _npages=100000
+    echodebug "updated npages:   $_npages"
+    ;;
+  -?*:?*:-)
+    echodebug "npages, selector, will get exact pages"
+    ;;
+  -?*::?*-)
+    echodebug "npages, callback"
+    echoerr "when using a callback it has explicit control over pagination"
+    echoerr "page limit given, which conflicts with callback"
+    return 1
+    ;;
+  -:?*:?*-|-?*:?*:?*-)
+    echodebug "selector, callback"
+    echoerr "selector and callback both specified for request"
+    return 1
+    ;;
+  esac
+
+  if [ -n "$_npages" ] && [ "$_npages" -lt 1 ]; then
     return 0
   fi
 
-  JW_CURL_AUTH_SRC=curlrc
-  JW_CURLRC="$JUNONIA_CONFIGDIR/curlrc"
-  JW_CONTENT_TYPE="application/vnd.api+json"
-
-  if  [ -n "$JW_JSON" ]; then
-    post_data="-d"
-  else
-    post_data=
-  fi
-
-  case $JW_CURL_AUTH_SRC in
-    curlrc)
-      echovvv "curl --header \"Content-Type: $JW_CONTENT_TYPE\"" >&2
-      echovvv "     --config \"$JW_CURLRC\"" >&2
-      echovvv "     $*" >&2
-      echovvv "     $post_data $JW_JSON" >&2
-
-      resp="$(curl $curl_silent -w '\nhttp_code: %{http_code}\n' \
-                   --header "Content-Type: $JW_CONTENT_TYPE" \
-                   --config "$JW_CURLRC" \
-                   $post_data "$JW_JSON" $@)"
+  case "$JW_AUTH_SRC" in
+    curl)
+      _autharg="$JW_AUTH"
       ;;
     oauth)
-      echovvv "curl --header \"Content-Type: $JW_CONTENT_TYPE\"" >&2
-      echovvv "     --header \"Authorization: Bearer \$JW_CURL_OAUTH\"" >&2
-      echovvv "     $*" >&2
-      echovvv "     $post_data $JW_JSON" >&2
-
-      resp="$(curl $curl_silent -w '\nhttp_code: %{http_code}\n' \
-                   --header "Content-Type: $JW_CONTENT_TYPE" \
-                   --header "Authorization: Bearer $JW_OAUTH" \
-                   $post_data "$JW_JSON" $@)"
+      _autharg='--oauth2-bearer $TOKEN_REDACTED'
       ;;
-    basic_auth)
-      echovvv "curl --header \"Content-Type: $JW_CONTENT_TYPE\"" >&2
-      echovvv "     --user \"$JW_CURL_BASIC\"" >&2
-      echovvv "     $*" >&2
-      echovvv "     $post_data $JW_JSON" >&2
-
-      resp="$(curl $curl_silent -w '\nhttp_code: %{http_code}\n' \
-                   --header "Content-Type: $JW_CONTENT_TYPE" \
-                   --user "$JW_CURL_BASIC" \
-                   $post_data "$JW_JSON" $@)"
-      ;;
-    *)
-      echovvv "curl --header \"Content-Type: $JW_CONTENT_TYPE\"" >&2
-      echovvv "     --user \"$JW_CURL_BASIC\"" >&2
-      echovvv "     $*" >&2
-      echovvv "     $post_data $JW_JSON" >&2
-
-      resp="$(curl $curl_silent -w '\nhttp_code: %{http_code}\n' \
-                   --header "Content-Type: $JW_CONTENT_TYPE" \
-                   $post_data "$JW_JSON" $@)"
+    basic)
+      _autharg='--user $user@$password_REDACTED'
+    ;;
+    env)
+      _autharg='$JW_AUTH'
       ;;
   esac
 
-  resp_body="$(printf '%s' "$resp" | awk '!/^http_code/; /^http_code/{next}')"
-  resp_code="$(printf '%s' "$resp" | awk '!/^http_code/{next} /^http_code/{print $2}')"
-  JW_LAST_RESP_CODE="$resp_code"
+  echovvv "curl --header \"Content-Type: $_content_t\"" >&2
+  if [ -n "$_autharg"]; then
+    echovvv "$_autharg"
+  fi
+  if [ -n "$_payload" ]; then
+    echovvv "--data \"$_payload\""
+  fi
+  echovvv "     $*" >&2
 
-  echodebug "API request http code: $resp_code. Response:"
-  echodebug_raw "$resp_body"
+  if [ -z "$_payload" ]; then
+    _resp="$(curl $JW_CURL_SILENT -w '\nhttp_code: %{http_code}\n' \
+                  $_autharg \
+                  "$_url" \
+                  $@)"
+  else
+    _resp="$(curl $JW_CURL_SILENT -w '\nhttp_code: %{http_code}\n' \
+                  $_autharg \
+                  --data "$_payload" \
+                  "$_url" \
+                  $@)"
+  fi
 
-  case "$resp_code" in
+  echodebug "curl output:"
+  echodebug_raw "$_resp"
+
+  _resp_body="$(printf '%s' "$_resp" | awk '!/^http_code/; /^http_code/{next}')"
+  _resp_code="$(printf '%s' "$_resp" | awk '!/^http_code/{next} /^http_code/{print $2}')"
+  JW_LAST_RESP_CODE="$_resp_code"
+
+  echodebug "extracted response code: $_resp_code"
+  echodebug "extracted response:"
+  echodebug_raw "$_resp_body"
+
+  case "$_resp_code" in
     2*)
       # Output the response here
-      printf "%s" "$resp_body"
+      printf "%s" "$_resp_body"
 
-      if [ -n "$selector" ]; then
+      if [ -n "$_selector" ]; then
         echodebug "selector"
-        next_page="$(printf "%s" "$resp_body" | \
-                     jq -r "$selector" 2>&3)"
+        _next_page="$(printf "%s" "$_resp_body" | \
+                      jq -r "$_selector" 2>&3)"
         echodebug "next page: $next_page"
-      elif [ -n "$callback" ]; then
+      elif [ -n "$_callback" ]; then
         echodebug "callback"
-        next_page="$($callback "$resp_code" "$resp_body")"
+        _next_page="$($_callback "$_resp_code" "$_resp_body")"
       else
         echodebug "no callback, no selector in jq_request"
       fi
 
-      if [ -n "$next_page" ] && [ "$next_page" != null ] &&
-         ! [ "$npages" -le 1 ]; then
-        echodebug "next link: $next_link"
-        echodebug "npages: $npages (will be decremented by 1)"
-        jw_request $((--npages)) "$selector" "$next_page"
+      if [ -n "$_next_page" ] && [ "$_next_page" != null ] &&
+         ! [ "$_npages" -le 1 ]; then
+        echodebug "next link: $_next_link"
+        echodebug "_npages: $_npages (will be decremented by 1)"
+        jw_request $((--_npages)) "$_selector" "$_next_page"
       fi
       ;;
     4*|5*)
       echoerr "API request failed."
-      echoerr_raw "HTTP status code: $resp_code"
-      if json_err="$(jw_tree_print "$resp_body" "$JW_ERR_SELECTOR")"; then
+      echoerr_raw "HTTP status code: $_resp_code"
+      if json_err="$(jw_tree_print "$_resp_body" "$JW_ERR_SELECTOR")"; then
         echoerr_raw "Details:"
-        echoerr_raw "$json_err"
+        echoerr_raw "$_json_err"
       else
         echoerr "Response:"
-        echoerr_raw "$resp_body"
+        echoerr_raw "$_resp_body"
       fi
 
       return 1
       ;;
     *)
       echoerr "Unable to complete API request."
-      echoerr "HTTP status code: $resp_code."
+      echoerr "HTTP status code: $_resp_code."
       echoerr "Response:"
-      echoerr "$resp_body"
+      echoerr "$_resp_body"
       return 1
       ;;
   esac
 }
 
-_jw_filter () {
-  echodebug "JW_CURLRC:     $JW_CURLRC"
-  echodebug "JW_OAUTH:      $JW_OAUTH"
-  echodebug "JW_BASIC_AUTH: $JW_BASIC_AUTH"
-
-  readonly JW_DEFAULT_CURLRC="$JUNONIA_CONFIGDIR/curlrc"
-
-  JW_CURL_AUTH_SRC=none
-
-  # If more than one option is present bail out
-  for opt in "$JW_CURLRC" "$JW_OAUTH" "$JW_BASIC_AUTH"; do
-    i=
-  done
-
-  # If nothing is specified but there is a default curlrc then use that
-  if [ -z "$JW_CURLRC" ] && [ -z "$JW_OAUTH" ] &&
-     [ -z "$JW_BASIC_AUTH" ] && [ -f "$JW_DEFAULT_CURLRC" ]; then
-    JW_CURLRC="$JW_DEFAULT_CURLRC"
-    JW_CURL_AUTH_SRC=curlrc
-  fi
-
-  # OAuth at the command line takes second highest precedence
-  if [ -z "$JW_CURL_AUTH_SRC" ] && [ -n "$JW_OAUTH" ] &&
-     echo "$JUNONIA_ARGS" | grep -qE -- ' -oauth '; then
-     echodebug "explicit -oauth"
-     JW_CURL_AUTH_SRC=oauth
-  fi
-
-  # Basic auth at the command line takes third highest precedence
-  if [ -z "$JW_CURL_AUTH_SRC" ] && [ -n "$JW_BASIC_AUTH" ] &&
-     echo "$JUNONIA_ARGS" | grep -qE -- ' -basic-auth '; then
-     echodebug "explicit -basic-auth"
-     JW_CURL_AUTH_SRC=basic
-  fi
-
-  # curlrc from any source (default included) comes fourth
-  if [ -z "$JW_CURL_AUTH_SRC" ] && [ -f "$JW_CURLRC" ]; then
-    echodebug "curlrc from env and config file"
-    JW_CURL_AUTH_SRC=curlrc
-  fi
-
-  if [ -z "$JW_CURL_AUTH_SRC" ]; then
-    echodebug "jw_curl_auth_src"
-  fi
-
-  case $JW_CURL_AUTH_SRC in
-    curlrc)
-      echodebug "basic:     $token_status, unused"
-      echodebug "curlrc:    $curlrc"
-      ;;
-    oauth)
-      echodebug "token:     $token_status"
-      echodebug "curlrc:    $curlrc, unused"
-      ;;
-    basic)
-      echodebug "token:     $token_status"
-      echodebug "curlrc:    $curlrc, unused"
-      ;;
-    curlrc_not_found)
-      echodebug "token:     $token_status, unused"
-      echodebug "curlrc:    $curlrc specified but not found"
-      ;;
-    none)
-      echodebug "token:     empty"
-      echodebug "curlrc:    $curlrc not found"
-      ;;
-  esac
-
-  readonly JW_CURLRC="$1"
-  readonly JW_OAUTH="$2"
-  readonly JW_BASIC_AUTH="$3"
-
-  return 9
-}

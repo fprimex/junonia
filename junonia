@@ -723,8 +723,9 @@ _junonia_md2spec () {
       }
 
       if(junonia_web) {
-        print indent "  -JUNONIA_WEB_METHOD METHOD=" rest_method
-        print indent "  -JUNONIA_WEB_URL URL=" rest_url
+        print indent "  -JUNONIA_WEB_METHOD METHOD=" jw_method
+        print indent "  -JUNONIA_CONTENT_TYPE TYPE=" jw_content_t
+        print indent "  -JUNONIA_WEB_URL URL=" jw_url
       }
 
       for(i=1; i<=n_opts; i++) {
@@ -745,6 +746,8 @@ _junonia_md2spec () {
       synopsis = 0
       positional = 0
       options = 0
+      endpoint = 0
+      content_type = 0
     }
 
     # Top level ## header
@@ -786,15 +789,30 @@ _junonia_md2spec () {
     }
 
     /^### REST endpoint/ {
-      getline
-      getline
+      endpoint = 1
+      next
+    }
+
+    endpoint && /^    [A-Z]+ http/ {
       junonia_web = 1
-      rest_method = $1
-      rest_url = $2
+      jw_method = $1
+      jw_url = $2
+      jw_content_t = ""
+      next
+    }
+
+    /^### Content type/ {
+        content_type = 1
+        next
+    }
+
+    content_type && /^    [^\/]+\/[^\/]+/ {
+        jw_content_t = $1
     }
 
     /^### Positional parameters/ {
       positional = 1
+      next
     }
 
     # * `POS_ONE`
@@ -2338,12 +2356,16 @@ _junonia_set_args () {
 
       # Get the junonia_web call arguments
       if(a[1] == "-JUNONIA_WEB_METHOD") {
-        rest_method = substr($0, index($0, "=") + 1, length($0))
-        echodebug("  rest method = " rest_method)
+        jw_method = substr($0, index($0, "=") + 1, length($0))
+        echodebug("  jw_method = " jw_method)
 
         getline
-        rest_url = substr($0, index($0, "=") + 1, length($0))
-        echodebug("  rest url = " rest_url)
+        jw_content_t = substr($0, index($0, "=") + 1, length($0))
+        echodebug("  jw_content_t = " jw_content_t)
+
+        getline
+        jw_url = substr($0, index($0, "=") + 1, length($0))
+        echodebug("  jw_url = " jw_url)
 
         next
       }
@@ -2571,7 +2593,7 @@ _junonia_set_args () {
 
       # This is a junonia_web call
       if(junonia_web) {
-        args = func_name JRS rest_method JRS rest_url JRS args
+        args = func_name JRS jw_method JRS jw_content_t JRS jw_url JRS args
         func_name = "junonia_web"
       }
 
@@ -2817,7 +2839,8 @@ _junonia_run_final () {
       ' "$_junonia_cmds" -
     )"
 
-    echodebug "$spec"
+    echodebug "final spec"
+    echodebug_raw "$spec"
     junonia_cache_file spec "$spec"
   fi
 
@@ -2828,7 +2851,7 @@ _junonia_run_final () {
     return 1
   fi
 
-  echodebug "arg_vals"
+  echodebug "all argument values returned to set"
   echodebug "$arg_vals"
 
   # The results of argument parsing always comes back as:
@@ -2889,6 +2912,8 @@ _junonia_exec () {
     jw_func="$1"
     shift
     jw_method="$1"
+    shift
+    jw_content_t="$1"
     shift
     jw_url="$1"
     shift
@@ -3007,7 +3032,7 @@ _junonia_exec () {
   # A function file was found and sourced, and the function was found. Execute
   # the function.
   if [ "$func" = "junonia_web" ]; then
-    $JUNONIA_FUNC "$jw_func" "$jw_method" "$jw_url" "$@"
+    $JUNONIA_FUNC "$jw_func" "$jw_method" "$jw_content_t" "$jw_url" "$@"
   else
     $JUNONIA_FUNC "$@"
   fi
