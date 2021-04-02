@@ -2917,6 +2917,9 @@ _junonia_exec () {
     shift
     jw_url="$1"
     shift
+
+    # Init junonia_web
+    jw_init
   fi
 
   if [ -z "$func" ]; then

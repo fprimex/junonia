@@ -16,6 +16,10 @@ jw_init () {
     return 1
   fi
 
+  if [ -n "$JUNONIA_DEBUG" ]; then
+    JW_CURL_SILENT="-s"
+  fi
+
   readonly JW_DEFAULT_CURLRC="$JUNONIA_CONFIGDIR/curlrc"
   readonly JW_CURLRC="${JW_CURLRC:-"$JW_DEFAULT_CURLRC"}"
 
@@ -470,4 +474,3 @@ jw_request () {
       ;;
   esac
 }
-
