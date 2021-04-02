@@ -16,7 +16,7 @@ jw_init () {
     return 1
   fi
 
-  if [ -n "$JUNONIA_DEBUG" ]; then
+  if [ -z "$JUNONIA_DEBUG" ]; then
     JW_CURL_SILENT="-s"
   fi
 
