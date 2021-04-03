@@ -1,11 +1,107 @@
 #!/bin/sh
 
+_junonia_web_cmds='  jtree
+    JSON_TEXT
+    ROOT_SELECTOR
+  request
+    METHOD
+    PAYLOAD
+    CONTENT_TYPE
+    URL
+    NPAGES
+    SELECTOR
+    CALLBACK
+    CURL_OPTIONS'
+
+_junonia_jtree_md () {
+cat << EOF
+## \`$JUNONIA_NAME jtree\`
+
+Print JSON in a tree format
+
+### Synopsis
+
+    $JUNONIA_NAME jtree [JSON_TEXT] [ROOT_SELECTOR]
+
+### Description
+
+Running \`config\` without any options displays the current configuration. To set program options, run \`$JUNONIA_NAME config\` followed by the subcommand, options, and option values as they would be provided during an invocation of that command.
+
+### Positional parameters
+
+* \`JSON_TEXT\`
+
+JSON formatted text to print as a tree. If \`-\` is given input will be read from \`stdin\`. [default: \`-\`]
+
+* \`ROOT_SELECTOR\`
+
+Provide a \`jq\` style selector that should be the root of the tree.
+
+EOF
+}
+
+_junonia_request_md () {
+cat << EOF
+## \`$JUNONIA_NAME request\`
+
+Perform an HTTP request
+
+### Synopsis
+
+    $JUNONIA_NAME request [METHOD [PAYLOAD]] [CONTENT_TYPE] URL
+                          [NPAGES] [SELECTOR] [CALLBACK] [CURL_OPTIONS]
+
+### Description
+
+Perform an HTTP request using \`curl\` that can optionally retrieve multiple pages using either a \`jq\` style selector or a callback function or program.
+
+### Positional parameters
+
+* \`METHOD\`
+
+HTTP method.
+
+* \`PAYLOAD\`
+
+If the HTTP method is a \`POST\`, \`PUT\`, or \`PATCH\`, then a payload should be supplied as well.
+
+* \`CONTENT_TYPE\`
+
+Set the MIME type for the request.
+
+* \`URL\`
+
+The URL to request with \`curl\`. Required.
+
+* \`NPAGES\`
+
+How many pages of a paginated request to retrieve if a selector or callback is given. Defaults to all pages.
+
+* \`SELECTOR\`
+
+A \`jq\` style selector that contains the next page to request in a paginated response.
+
+* \`CALLBACK\`
+
+A callback function or program that will retceive the response, and should return the next page that should be requested.
+
+* \`CURL_OPTIONS\`
+
+Any additional options to \`curl\`.
+
+EOF
+}
+
+_junonia_func_names="
+${JUNONIA_NAME}_jtree
+${JUNONIA_NAME}_request"
+
 ###
 ### Execution environment setup and management
 ###
 
-jw_init () {
-  echodebug "begin jw init"
+junonia_webinit () {
+  echodebug "begin junonia_webinit"
 
   if [ -n "$JW_INIT" ]; then
     # init has already been run
@@ -15,6 +111,9 @@ jw_init () {
   if ! junonia_require_cmds jq curl; then
     return 1
   fi
+
+  _junonia_cmds="$_junonia_cmds
+$_junonia_web_cmds"
 
   if [ -z "$JUNONIA_DEBUG" ]; then
     JW_CURL_SILENT="-s"
@@ -55,56 +154,71 @@ jw_init () {
 # Recursively print a JSON object as indented plain text.
 # Call by including in a jq program and sending an object and starting indent:
 # leaf_print({"SOME TITLE": .any_attr, "indent": "  "})
-jw_jq_leafprint='
-  def leaf_print(o):
-    o.indent as $i |
-    $i + "  " as $ni |
-    o.errors as $e |
-    $e | keys[] as $k |
-      (select(($e[$k] | type) != "array" and ($e[$k] | type) != "object") |
-        "\($k): \($e[$k])"),
-      (select(($e[$k] | type) == "object") |
+junonia_jq_leafprint='
+  def leaf_print(json):
+    json.indent  as $i  |
+    $i + "  "    as $ni |
+    json.element as $e  |
+      (select(($e | type) != "array" and ($e | type) != "object") |
+        "\($e)"),
+      (select(($e | type) == "object" or ($e | type) == "array") |
+        $e | keys[] as $k |
         "\($k):",
-        "\(leaf_print({"errors": $e[$k], "indent": $ni}))"),
-      (select(($e[$k] | type) == "array") |
-        "\($k):",
-        "\(leaf_print({"errors": $e[$k], "indent": $ni}))");
+        "\(leaf_print({"element": $e[$k], "indent": $ni}))");
 '
+
+readonly JUNONIA_JQS="
+$junonia_jq_leafprint
+"
 
 # Pretty print JSON as text with each key/value on a single line and no
 # brackets, quotes, or other formatting.
-jw_tree_print () {
+junonia_jtree () {
   # $1: JSON body
   # $2: Optional selector for jq to make the root
 
-  # If a selector was given, select that as the root, otherwise take everything
-  if [ -n "$2" ]; then
-    if ! jw_tree_root="$(printf '%s' "$1" | jq -r "$2")"; then
-      echo "unable to select object(s) using $2"
-    fi
+  if [ $# -eq 0 ] || ( [ "$1" = "" ] && [ "$2" = "" ] ); then
+    _body="$(cat)"
+    _selector=
+  elif [ "$1" = "-" ] || [ "$(echo "$1" | cut -c 1)" = "." ]; then
+    _body="$(cat)"
+    _selector="$2"
   else
-    jw_tree_root="$1"
+    _body="$1"
+    _selector="$2"
   fi
 
-  echodebug ""
-  echodebug_raw '%s\n' "$1"
-  if jw_json_tree="$(printf '%s' "$jw_tree_root" | jq -r '
-    def leaf_print(json):
-      json.indent  as $i  |
-      $i + "  "    as $ni |
-      json.element as $e  |
-        (select(($e | type) != "array" and ($e | type) != "object") |
-          "\($e)"),
-        (select(($e | type) == "object" or ($e | type) == "array") |
-          $e | keys[] as $k |
-          "\($k):",
-          "\(leaf_print({"element": $e[$k], "indent": $ni}))");
+  if [ -z "$_selector" ]; then
+    if [ -n "$JW_JQPROG" ]; then
+      _selector=$(echo $JW_JQPROG | cut -d ' ' -f 1)
+    fi
+  fi
 
-    leaf_print({"element": ., "indent": ""})')"; then
-    echo "$jw_json_tree"
+  echodebug "initial body:"
+  echodebug_raw "$_body"
+  echodebug "initial selector: $_selector"
+
+  # If a selector was given, select that as the root, otherwise take everything
+  if [ -n "$_selector" ]; then
+    if ! _tree_root="$(printf '%s' "$_body" | jq -r "$_selector")"; then
+      echo "unable to select object(s) using $_selector"
+    fi
   else
-    echo "not a JSON object:"
-    echo "$1"
+    _tree_root="$_body"
+  fi
+
+  echodebug "jtree body"
+  echodebug_raw "$_tree_root"
+  jq_prog='leaf_print({"element": ., "indent": ""})'
+  echodebug "jq program"
+  echodebug "$junonia_jq_leafprint $jq_prog"
+  if _json_tree="$(printf '%s' "$_tree_root" | \
+                     jq -r "$junonia_jq_leafprint $jq_prog" 2>&3)"; then
+    echo "$_json_tree"
+  else
+    echoerr "failed to select valid JSON with selector or not a JSON object:"
+    echoerr "root selector: $_selector"
+    echoerr_raw "$_body"
     return 1
   fi
 }
@@ -196,9 +310,9 @@ junonia_web () {
   if _junonia_load_func $func_name; then
     echodebug "located callback $func_name"
     cb=$func_name
-  elif command -v ${JUNONIA_NAME}_jw_callback >/dev/null 2>&1; then
-    echodebug "global callback ${JUNONIA_NAME}_jw_callback present"
-    cb=${JUNONIA_NAME}_jw_callback
+  elif command -v ${JUNONIA_NAME}_web_callback >/dev/null 2>&1; then
+    echodebug "global callback ${JUNONIA_NAME}_web_callback present"
+    cb=${JUNONIA_NAME}_web_callback
   else
     echodebug "no callback found"
     cb=
@@ -211,20 +325,20 @@ junonia_web () {
     POST|PUT|PATCH)
       if [ -n "$cb" ]; then
         echodebug "making $method request with callback $cb"
-        $cb "$(jw_request "$method" "$JW_JSON" "$content_t" "$url$query")"
+        $cb "$(junonia_request "$method" "$JW_JSON" "$content_t" "$url$query")"
       else
         echodebug "making $method request without callback"
-        jw_request "$method" "$JW_JSON" "$content_t" "$url$query"
+        junonia_request "$method" "$JW_JSON" "$content_t" "$url$query"
       fi
       ;;
     *)
-			if [ -n "$cb" ]; then
-				echodebug "making $method request with callback $cb"
-				$cb "$(jw_request "$method" "$content_t" "$url$query")"
-			else
-				echodebug "making $method request without callback"
-				jw_request "$method" "$content_t" "$url$query"
-			fi
+      if [ -n "$cb" ]; then
+        echodebug "making $method request with callback $cb"
+        $cb "$(junonia_request "$method" "$content_t" "$url$query")"
+      else
+        echodebug "making $method request without callback"
+        junonia_request "$method" "$content_t" "$url$query"
+      fi
   esac
 }
 
@@ -233,19 +347,19 @@ junonia_web () {
 # Usage:
 #
 # Perform one page request and return the result
-# jq_request <method> <method specific options> <curl url and options>
+# junonia_request <method> <method specific options> <curl url and options>
 #
 # Perform a page request and get pages using the selected url up to a default
-# jq_request <jq selector> <method> <method specific options> \
-#            <curl url and options>
+# junonia__request <jq selector> <method> <method specific options> \
+#                  <curl url and options>
 #
 # Perform a page request and get pages using the selected url up to a limit
-# jq_request <integer pages to retrieve> <jq selector> <method> \
-#            <method specific options> <curl url and options>
+# junonia_request <integer pages to retrieve> <jq selector> <method> \
+#                 <method specific options> <curl url and options>
 #
 # Perform a page request and get next pages using a callback
-# jq_request <paging function name> <method> <method specific options> \
-#            <curl url and options>
+# junonia_request <paging function name> <method> <method specific options> \
+#                 <curl url and options>
 #
 # npages                         = error
 #           selector             = use selector, get all pages 
@@ -254,81 +368,101 @@ junonia_web () {
 # npages &&             callback = error
 #           selector && callback = error
 # 
-# jw_request [method [payload]] [content_t] url
-#            [npages] [selector] [callback] [curl options]
-jw_request () {
-  echodebug "jw_request args: $@"
+# junonia_request [method [payload]] [content_t] url
+#                 [npages] [selector] [callback] [curl options]
+junonia_request () {
+  echodebug "junonia_request args: $@"
 
-  _method=
-  _url=
-  _content_t=
-  _payload=
-  _npages=
-  _selector=
-  _callback=
+  if [ $# -eq 7 ]; then
+    _method="$1"
+    _url="$2"
+    _content_t="$3"
+    _payload="$4"
+    _npages="$5"
+    _selector="$6"
+    _callback="$7"
 
-  case "$1" in
-    GET|HEAD|DELETE|CONNECT|OPTIONS|TRACE)
-      _method="$1"
-      shift
-      echodebug "no special processing required for method $_method"
-      ;;
-    POST|PUT|PATCH)
-      _method="$1"
-      shift
-      _payload="$1"
-      shift
-      if [ -z "$_payload" ]; then
-        echodebug "WARNING: EMPTY PAYLOAD"
-        # Not going to error. I have seen weirder things than requiring
-        # an empty _payload on a POST.
-      fi
-      ;;
-    http*)
-      _method=GET
-      _url="$1"
-      shift
-      ;;
-  esac
-
-  if [ -z "$_url" ]; then
-    _content_t="$1"
-    shift
-
-    _url="$1"
-    shift
-  fi
-
-  if [ -z "$_content_t" ]; then
-    _content_t="${JW_CONTENT_TYPE:-"application/octet-stream"}"
-  fi
-
-  # Was a page limit provided?
-  if [ "$1" -eq "$1" ] >/dev/null 2>&1; then
-    echodebug "page limit is $1"
-    _npages="$1"
-    shift
-
-    # If 0 was supplied get all the pages using a very large number
-    if [ $_npages = 0 ]; then
-      echodebug "getting all pages due to page limit 0"
-      _npages=100000
+    if [ -z "$_url" ]; then
+      echoerr "a URL was not specified"
+      return 1
     fi
-  fi
+  else
+    _method=
+    _url=
+    _content_t=
+    _payload=
+    _npages=
+    _selector=
+    _callback=
 
-  # Was a _selector provided?
-  if [ -z "${1##.*}" ]; then
-    echodebug "selector provided for paging: $1"
-    _selector="$1"
-    shift
-  fi
+    case "$1" in
+      GET|HEAD|DELETE|CONNECT|OPTIONS|TRACE)
+        _method="$1"
+        shift
+        echodebug "no special processing required for method $_method"
+        ;;
+      POST|PUT|PATCH)
+        _method="$1"
+        shift
+        _payload="$1"
+        shift
+        if [ -z "$_payload" ]; then
+          echodebug "WARNING: EMPTY PAYLOAD"
+          # Not going to error. I have seen weirder things than requiring
+          # an empty _payload on a POST.
+        fi
+        ;;
+      http*)
+        _method=GET
+        _url="$1"
+        shift
+        ;;
+    esac
 
-  # Was a _callback supplied?
-  echodebug "checking to see if "$1" is a callback"
-  if [ junonia_require_cmds "$1" 2>/dev/null ]; then
-    echodebug "found callback command $1"
-    _callback="$1"
-    shift
+    if [ -z "$_url" ]; then
+      _content_t="$1"
+      shift
+
+      if [ -z "$1" ]; then
+        echoerr "no url was provided"
+        return 1
+      else
+        _url="$1"
+        shift
+      fi
+    fi
+
+    if [ -z "$_content_t" ]; then
+      _content_t="${JW_CONTENT_TYPE:-"application/octet-stream"}"
+    fi
+
+    # Was a page limit provided?
+    if [ "$1" -eq "$1" ] >/dev/null 2>&1; then
+      echodebug "page limit is $1"
+      _npages="$1"
+      shift
+
+      # If 0 was supplied get all the pages using a very large number
+      if [ $_npages = 0 ]; then
+        echodebug "getting all pages due to page limit 0"
+        _npages=100000
+      fi
+    fi
+
+    # Was a _selector provided?
+    if [ -z "${1##.*}" ]; then
+      echodebug "selector provided for paging: $1"
+      _selector="$1"
+      shift
+    fi
+
+    # Was a _callback supplied?
+    echodebug "checking to see if "$1" is a callback"
+    if [ junonia_require_cmds "$1" 2>/dev/null ]; then
+      echodebug "found callback command $1"
+      _callback="$1"
+      shift
+    fi
   fi
 
   echodebug "method:   $_method"
@@ -389,7 +523,7 @@ jw_request () {
       ;;
     basic)
       _autharg='--user $user@$password_REDACTED'
-    ;;
+      ;;
     env)
       _autharg='$JW_AUTH'
       ;;
@@ -449,13 +583,13 @@ jw_request () {
          ! [ "$_npages" -le 1 ]; then
         echodebug "next link: $_next_link"
         echodebug "_npages: $_npages (will be decremented by 1)"
-        jw_request $((--_npages)) "$_selector" "$_next_page"
+        junonia_request $((--_npages)) "$_selector" "$_next_page"
       fi
       ;;
     4*|5*)
       echoerr "API request failed."
       echoerr_raw "HTTP status code: $_resp_code"
-      if json_err="$(jw_tree_print "$_resp_body" "$JW_ERR_SELECTOR")"; then
+      if json_err="$(junonia_jtree "$_resp_body" "$JW_ERR_SELECTOR")"; then
         echoerr_raw "Details:"
         echoerr_raw "$_json_err"
       else
