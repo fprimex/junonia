@@ -1,8 +1,15 @@
 #!/bin/sh
 
-_junonia_web_cmds='  jtree
-    JSON_TEXT
-    ROOT_SELECTOR
+_junonia_web_cmds='  jpath
+    JSON_TEXT=-
+    -r, -root ROOT_SELECTOR=.
+  jtable
+    JSON_TEXT=-
+    -r, -root ROOT_SELECTOR=.
+    -t, -transpose=
+  jtree
+    JSON_TEXT=-
+    -r, -root ROOT_SELECTOR=.
   request
     METHOD
     PAYLOAD
@@ -25,7 +32,7 @@ Print JSON in a tree format
 
 ### Description
 
-Running \`config\` without any options displays the current configuration. To set program options, run \`$JUNONIA_NAME config\` followed by the subcommand, options, and option values as they would be provided during an invocation of that command.
+Prints JSON supplied on \`stdin\` or as a positional parameter in an indented tree-like format with no brackets or other formatting.
 
 ### Positional parameters
 
@@ -33,9 +40,79 @@ Running \`config\` without any options displays the current configuration. To se
 
 JSON formatted text to print as a tree. If \`-\` is given input will be read from \`stdin\`. [default: \`-\`]
 
-* \`ROOT_SELECTOR\`
+### Options
 
-Provide a \`jq\` style selector that should be the root of the tree.
+* -r, -root \`ROOT_SELECTOR\`
+
+Provide a \`jq\` style selector that should be an array of objects. [default: \`.\`]
+
+EOF
+}
+
+_junonia_jpath_md () {
+cat << EOF
+## \`$JUNONIA_NAME jpath\`
+
+Print flattened JSON
+
+### Synopsis
+
+    $JUNONIA_NAME jpath [JSON_TEXT] [ROOT_SELECTOR]
+
+### Description
+
+Prints JSON supplied on \`stdin\` or as a positional parameter in a flat, \`SELECTOR VALUE\` format.
+
+### Positional parameters
+
+* \`JSON_TEXT\`
+
+JSON formatted text to print as a tree. If \`-\` is given input will be read from \`stdin\`. [default: \`-\`]
+
+### Options
+
+* -r, -root \`ROOT_SELECTOR\`
+
+Provide a \`jq\` style selector that should be an array of objects. [default: \`.\`]
+
+EOF
+}
+
+_junonia_jtable_md () {
+cat << EOF
+## \`$JUNONIA_NAME jtable\`
+
+Print JSON values from an array of objects in a table format
+
+### Synopsis
+
+    $JUNONIA_NAME jtable [JSON_TEXT] [-r ROOT_SELECTOR] [-t] [COLUMNS]
+
+### Description
+
+Prints JSON supplied on \`stdin\` or as a positional parameter in a table format, where the columns are \`jq\` selector values.
+
+### Positional parameters
+
+* \`JSON_TEXT\`
+
+JSON formatted text to print as a table. If \`-\` is given input will be read from \`stdin\`. [default: \`-\`]
+
+### Options
+
+* -r, -root \`ROOT_SELECTOR\`
+
+Provide a \`jq\` style selector that should be an array of objects. [default: \`.\`]
+
+* -t, -transpose
+
+If the table should be transposed. [default: \`true\`]
+
+### JSON options
+
+* \`COLUMNS\`
+
+Provide space separated \`jq\` style selectors, beginning with \`.\`, that specify the columns of the table.
 
 EOF
 }
@@ -92,8 +169,17 @@ Any additional options to \`curl\`.
 EOF
 }
 
-_junonia_func_names="
+_junonia_web_mds () {
+_junonia_request_md
+_junonia_jtree_md
+_junonia_jpath_md
+_junonia_jtable_md
+}
+
+_junonia_web_func_names="
 ${JUNONIA_NAME}_jtree
+${JUNONIA_NAME}_jtable
+${JUNONIA_NAME}_jpath
 ${JUNONIA_NAME}_request"
 
 ###
@@ -153,9 +239,9 @@ $_junonia_web_cmds"
 
 # Recursively print a JSON object as indented plain text.
 # Call by including in a jq program and sending an object and starting indent:
-# leaf_print({"SOME TITLE": .any_attr, "indent": "  "})
-junonia_jq_leafprint='
-  def leaf_print(json):
+# jleaf({"element": .any_attr, "indent": "  "})
+junonia_jq_jleaf='
+  def jleaf(json):
     json.indent  as $i  |
     $i + "  "    as $ni |
     json.element as $e  |
@@ -164,39 +250,100 @@ junonia_jq_leafprint='
       (select(($e | type) == "object" or ($e | type) == "array") |
         $e | keys[] as $k |
         "\($k):",
-        "\(leaf_print({"element": $e[$k], "indent": $ni}))");
+        "\(jleaf({"element": $e[$k], "indent": $ni}))");
+'
+
+# Recursively print the leaves of a JSON object as plain text.
+# Call by including in a jq program and sending an object:
+# jpath({"element": .any_attr, "indent": "  "})
+junonia_jq_jpath='
+  def jpath(json):
+    json.path    as $p  |
+    json.element as $e  |
+      (select(($e | type) != "array" and ($e | type) != "object") |
+        "\($p) \($e)"),
+      (select(($e | type) == "array") |
+        $e | keys[] as $k |
+        "\(jpath({"element": $e[$k],
+                 "path":    "\($p).[\($k)]"}))"),
+      (select(($e | type) == "object") |
+        $e | keys[] as $k |
+        "\(jpath({"element": $e[$k],
+                 "path":    "\($p).\($k)"}))");
+'
+
+junonia_jq_jtable='
+  def jtable(json):
+      json.transpose as $t
+      | [
+          json.element[]
+          | [
+              json.columns[] as $c
+              | getpath($c | split(".")[1:])
+            ]
+        ] 
+        | if $t then transpose else . end
+        | .[]
+        | join($jfs);
 '
 
 readonly JUNONIA_JQS="
-$junonia_jq_leafprint
+$junonia_jq_jleaf
+$junonia_jq_jpath
+$junonia_jq_jtable
 "
 
-# Pretty print JSON as text with each key/value on a single line and no
-# brackets, quotes, or other formatting.
-junonia_jtree () {
+junonia_jprint () {
+  echodebug "#### $@"
+  # A printing program is always required
+  jq_prog="$1"
+  shift
+
+  if [ -z "$jq_prog" ]; then
+    echoerr 'a jq program is required in order to jprint'
+    return 1
+  fi
+  
+  # Now, with the program shifted
   # $1: JSON body
   # $2: Optional selector for jq to make the root
 
+  # no args, or both args empty
   if [ $# -eq 0 ] || ( [ "$1" = "" ] && [ "$2" = "" ] ); then
     _body="$(cat)"
     _selector=
+  # explicit read from stdin or first arg is json arg (start with ".")
   elif [ "$1" = "-" ] || [ "$(echo "$1" | cut -c 1)" = "." ]; then
     _body="$(cat)"
     _selector="$2"
+    shift
+    shift
+  # 1 or more args, arg 1 is not - or starts with .
+  # take $1 and $2, with $2 potentially empty
   else
     _body="$1"
     _selector="$2"
+    shift
+    shift
   fi
 
+  # This provides $ARGS.positional
+  _jqargs=
+  if [ -n "$1" ]; then
+    _jqargs="--args $@"
+  fi
+
+  # no explicit selector in the function call, but a json arg at the CLI
   if [ -z "$_selector" ]; then
-    if [ -n "$JW_JQPROG" ]; then
-      _selector=$(echo $JW_JQPROG | cut -d ' ' -f 1)
+    if [ -n "$JW_JQARGS" ]; then
+      _selector=$(echo "$JW_JQARGS" | head -n 1)
     fi
   fi
 
   echodebug "initial body:"
   echodebug_raw "$_body"
-  echodebug "initial selector: $_selector"
+  echodebug "selector: $_selector"
+  echodebug "positional arguments: $_jqargs"
 
   # If a selector was given, select that as the root, otherwise take everything
   if [ -n "$_selector" ]; then
@@ -207,20 +354,89 @@ junonia_jtree () {
     _tree_root="$_body"
   fi
 
-  echodebug "jtree body"
+  echodebug "jprint body"
   echodebug_raw "$_tree_root"
-  jq_prog='leaf_print({"element": ., "indent": ""})'
-  echodebug "jq program"
-  echodebug "$junonia_jq_leafprint $jq_prog"
-  if _json_tree="$(printf '%s' "$_tree_root" | \
-                     jq -r "$junonia_jq_leafprint $jq_prog" 2>&3)"; then
-    echo "$_json_tree"
+
+  if _jprinted="$(printf '%s' "$_tree_root" | \
+                     jq -r --arg jfs $JFS \
+                        "$JUNONIA_JQS $jq_prog" \
+                        $_jqargs 2>&3)"; then
+    echo "$_jprinted"
   else
     echoerr "failed to select valid JSON with selector or not a JSON object:"
     echoerr "root selector: $_selector"
+    echoerr "body:"
     echoerr_raw "$_body"
     return 1
   fi
+}
+
+# $1: JSON body
+# $2: Optional selector for jq to make the root
+
+# Pretty print JSON as text with each key/value on a single line and no
+# brackets, quotes, or other formatting.
+junonia_jtree () {
+  jq_prog='jleaf({"element":.,"indent":""})'
+  echodebug 'jtree jqprog'
+  echodebug_raw "$jq_prog"
+  junonia_jprint "$jq_prog" "$1" "$2"
+}
+
+# Print JSON paths and values on a single line in the format:
+# <path> <value>
+junonia_jpath () {
+  jq_prog='jpath({"element":.,"path":""})'
+  echodebug 'jpath jqprog'
+  echodebug_raw "$jq_prog"
+  junonia_jprint "$jq_prog" "$1" "$2"
+}
+
+# Print selected JSON paths and values in a table
+junonia_jtable () {
+  text="$1"
+  root="$2"
+  transpose="$3"
+
+  if [ $transpose ]; then
+    jq_prog='jtable({"element":.,"columns":$ARGS.positional,"transpose":true})'
+  else
+    jq_prog='jtable({"element":.,"columns":$ARGS.positional})'
+  fi
+
+  # Columns are jq args and so are collected in JW_JQARGS
+
+  echodebug 'jtable jqprog'
+  echodebug_raw "$jq_prog"
+
+  table="$(junonia_jprint "$jq_prog" "$text" "$root" \
+                          $(echo $JW_JQARGS | xargs))"
+
+  echodebug "jtable result:"
+  echodebug_raw "$table"
+
+  colw="$(echo "$table" | awk -v w="$JUNONIA_WRAP" -v jfs=$JFS '{
+                            c = w / (gsub(jfs, "") + 1)
+                            print c
+                            exit
+                          }')"
+  echodebug "column width: $colw"
+
+  i=0
+  n="$(echo "$JW_JQARGS" | wc -l)"
+  while [ $i -lt $n ]; do
+    colws="$colws$colw$JFS"
+    i=$(( $i+1 ))
+  done
+
+  # iterate over the lines provided from jq, formatting into the columns
+  for record in $table; do
+    # If there is an error we do not want to repeat that for every row
+    if ! table_txt="$(junonia_ncol "$record" "$colws")"; then
+      return 1
+    fi
+    printf '%s\n' "$table_txt"
+  done
 }
 
 junonia_web () {
@@ -241,7 +457,7 @@ junonia_web () {
   # See if there are additional parameters coming from elsewhere.
   if [ -n "$JW_ADDL_PARAMS" ]; then
     echodebug "addl params: $JW_ADDL_PARAMS"
-    url="$(echo "$url" | awk -v "JRS=$JUNONIA_RS" -v "params=$JW_ADDL_PARAMS" '{
+    url="$(echo "$url" | awk -v "JRS=$JRS" -v "params=$JW_ADDL_PARAMS" '{
       split(params, addl_params, JRS)
       for(p in addl_params) {
         split(addl_params[p], a, "=")
@@ -288,9 +504,7 @@ junonia_web () {
   i=0
   query=
   while [ $i -le $# ]; do
-    if [ -n "${1#*=}" ]; then
-      query="$query&$1"
-    fi
+    query="$query&$1"
     i=$(( $i+1 ))
     shift
   done
@@ -372,6 +586,7 @@ junonia_web () {
 #                 [npages] [selector] [callback] [curl options]
 junonia_request () {
   echodebug "junonia_request args: $@"
+  return 0
 
   if [ $# -eq 7 ]; then
     _method="$1"
@@ -608,3 +823,54 @@ junonia_request () {
       ;;
   esac
 }
+
+# Copy of junonia_bootstrap for executing this script directly
+junonia_web_bootstrap () {
+  JUNONIA_TARGET="$0"
+  while [ -h "$JUNONIA_TARGET" ]; do
+    JUNONIA_PATH="$(file -h "$JUNONIA_TARGET" | \
+                    sed 's/^.*symbolic link to //')"
+    if [ "$(echo "$JUNONIA_PATH" | cut -c -1)" = "/" ]; then
+      JUNONIA_TARGET="$JUNONIA_PATH"
+    else
+      JUNONIA_TARGET="$(dirname $JUNONIA_TARGET)"
+      JUNONIA_TARGET="$JUNONIA_TARGET/$JUNONIA_PATH"
+    fi
+  done
+  JUNONIA_PATH="$(cd "$(dirname "$JUNONIA_TARGET")" && pwd -P)"
+  JUNONIA_TARGET="$JUNONIA_PATH/$(basename $JUNONIA_TARGET)"
+  if [ "$(basename "$JUNONIA_PATH")" = bin ]; then
+    JUNONIA_PATH="$(dirname "$JUNONIA_PATH")"
+  fi
+}
+
+if [ -z "$JUNONIA_INIT" ]; then
+  # junonia_web was not sourced from junonia
+  junonia_web_bootstrap
+
+  if [ "$(basename "$JUNONIA_TARGET" .sh)" != "junonia_web" ]; then
+    # junonia_web has been renamed and is being executed, which is a mode that
+    # allows users/devs to write Markdown docs for their REST endpoints and use
+    # this renamed script as their client.
+
+    if ! junonia_init > /dev/null 2>&1; then
+      # try to find junonia and source it 
+      for f in $JUNONIA_PATH/junonia \
+              $JUNONIA_PATH/bin/junonia \
+              $JUNONIA_PATH/lib/junonia \
+              $JUNONIA_PATH/lib/$JUNONIA_NAME/junonia; do
+        if [ -f "$f" ]; then
+          . "$f"
+          junonia_init
+          break
+        fi
+      done
+    fi
+
+    if [ -z "$JUNONIA_INIT" ]; then
+      echo "unable to initialize junonia" 1>&2
+      exit 1
+    fi
+    junonia_run "$@" 
+  fi
+fi
