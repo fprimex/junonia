@@ -415,24 +415,59 @@ junonia_jtable () {
   echodebug "jtable result:"
   echodebug_raw "$table"
 
-  colw="$(echo "$table" | awk -v w="$JUNONIA_WRAP" -v jfs=$JFS '{
-                            c = w / (gsub(jfs, "") + 1)
-                            print c
-                            exit
-                          }')"
+  junonia_format_jtable "$table"
+}
+
+junonia_format_jtable () {
+  table="$1"
+  headers="$2"
+
+  echodebug "headers"
+  echodebug_raw "$headers"
+  echodebug "table"
+  echodebug_raw "$table"
+
+  n_cols="$(echo "$table" | awk -v jfs=$JFS '{
+                              n = gsub(jfs, "") + 1
+                              print n
+                              exit
+                            }')"
+  echodebug "number of cols: $n_cols"
+
+  colw="$(  echo "$table" | awk -v w="$JUNONIA_WRAP" -v jfs=$JFS '{
+                              c = w / (gsub(jfs, "") + 1)
+                              print c
+                              exit
+                            }')"
   echodebug "column width: $colw"
 
-  i=0
-  n="$(echo "$JW_JQARGS" | wc -l)"
-  while [ $i -lt $n ]; do
-    colws="$colws$colw$JFS"
-    i=$(( $i+1 ))
-  done
+  colws="$(echo "$headers" | awk -v jfs=$JFS -v w=$colw '{
+    n = split($0, a, jfs)
+    for(i=1; i<=n; i++) {
+      if(substr(a[i], length(a[i])) == " ") {
+        colws = colws jfs length(a[i])
+      } else {
+        colws = colws jfs w
+      }
+    }
+    sub(jfs, "", colws)
+    print colws
+  }')"
+  echodebug "column widths: $colws"
+
+  if ! table_txt="$(junonia_ncol "$headers" "$colws")"; then
+    echoerr "Could not format table"
+    echoerr_raw "$table_txt"
+    return 1
+  fi
+  printf '%s\n' "$table_txt"
 
   # iterate over the lines provided from jq, formatting into the columns
-  for record in $table; do
+  printf "%s\n" "$table" | while read -r record; do
     # If there is an error we do not want to repeat that for every row
     if ! table_txt="$(junonia_ncol "$record" "$colws")"; then
+      echoerr "Could not format table"
+      echoerr_raw "$table_txt"
       return 1
     fi
     printf '%s\n' "$table_txt"
@@ -447,6 +482,10 @@ junonia_web () {
   content_t="$1"
   shift
   url="$1"
+  shift
+  output="$1"
+  shift
+  json="$1"
   shift
 
   echodebug "junonia_web $func_name $method $url"
@@ -539,21 +578,110 @@ junonia_web () {
     POST|PUT|PATCH)
       if [ -n "$cb" ]; then
         echodebug "making $method request with callback $cb"
-        $cb "$(junonia_request "$method" "$JW_JSON" "$content_t" "$url$query")"
+        resp="$($cb "$(junonia_request "$method" "$JW_JSON" "$content_t" "$url$query")")"
       else
         echodebug "making $method request without callback"
-        junonia_request "$method" "$JW_JSON" "$content_t" "$url$query"
+        resp="$(junonia_request "$method" "$JW_JSON" "$content_t" "$url$query")"
       fi
       ;;
     *)
       if [ -n "$cb" ]; then
         echodebug "making $method request with callback $cb"
-        $cb "$(junonia_request "$method" "$content_t" "$url$query")"
+        resp="$($cb "$(junonia_request "$method" "$content_t" "$url$query")")"
       else
         echodebug "making $method request without callback"
-        junonia_request "$method" "$content_t" "$url$query"
+        resp="$(junonia_request "$method" "$content_t" "$url$query")"
       fi
-  esac
+      ;;
+    esac
+
+    echodebug "return json flag: $json"
+    echodebug "output:"
+    echodebug_raw "$output"
+
+    if [ -n "$output" ] && [ -z "$json" ]; then
+      set --
+      printf "%s" "$resp" | \
+      jq -r --arg jfs $JFS "$JUNONIA_JQS \"$output\"" | \
+      while read -r line; do
+        case "$line" in
+          $JSOH)
+            tpl_cmd=
+            tpl_arg=
+            output_tpl=1
+            get_tpl="cmd"
+            echodebug "SOH"
+            echodebug "cmd: $tpl_cmd"
+            echodebug "arg: $tpl_arg"
+            ;;
+          $JEOT)
+            echodebug "EOT"
+            echodebug "cmd: $tpl_cmd"
+            echodebug "arg: $tpl_arg"
+
+            echodebug "tpl_cmd: $tpl_cmd $@"
+            $tpl_cmd "$@"
+
+            output_tpl=
+            get_tpl=
+            ;;
+          $JSTX)
+            get_tpl="newarg"
+            echodebug "STX"
+            echodebug "cmd: $tpl_cmd"
+            echodebug "arg: $tpl_arg"
+            ;;
+          $JETX)
+            set "$@" "$tpl_arg"
+            tpl_arg=
+            get_tpl=
+            echodebug "ETX"
+            echodebug "cmd: $tpl_cmd"
+            echodebug "arg: $tpl_arg"
+            ;;
+          *)
+            if [ $output_tpl ]; then
+              case "$get_tpl" in
+                cmd)
+                  tpl_cmd="$line"
+                  get_tpl=
+                  echodebug "* cmd"
+                  echodebug "cmd: $tpl_cmd"
+                  echodebug "arg: $tpl_arg"
+                  ;;
+                newarg)
+                  if [ "$line" != "" ]; then
+                    tpl_arg="$tpl_arg$line"
+                    echodebug "* arg1"
+                    echodebug "cmd: $tpl_cmd"
+                    echodebug "arg: $tpl_arg"
+                    get_tpl=arg
+                  fi
+                  ;;
+                arg)
+                  tpl_arg="$(printf "%s\n%s" "$tpl_arg" "$line")"
+                  echodebug "* arg2"
+                  echodebug "cmd: $tpl_cmd"
+                  echodebug "arg: $tpl_arg"
+                  ;;
+                *)
+                  tpl_cmd="$tpl_cmd\n$line"
+                  get_tpl=""
+                  echodebug "* cmd2"
+                  echodebug "cmd: $tpl_cmd"
+                  echodebug "arg: $tpl_arg"
+                  ;;
+                esac
+            else
+              printf "%s\n" "$line"
+              echodebug "*"
+            fi
+            ;;
+        esac
+      done
+    else
+      printf "%s" "$resp"
+    fi
 }
 
 # Perform a curl using the configured authentication and given options.
@@ -586,7 +714,6 @@ junonia_web () {
 #                 [npages] [selector] [callback] [curl options]
 junonia_request () {
   echodebug "junonia_request args: $@"
-  return 0
 
   if [ $# -eq 7 ]; then
     _method="$1"
@@ -624,7 +751,7 @@ junonia_request () {
         if [ -z "$_payload" ]; then
           echodebug "WARNING: EMPTY PAYLOAD"
           # Not going to error. I have seen weirder things than requiring
-          # an empty _payload on a POST.
+          # an empty payload on a POST.
         fi
         ;;
       http*)
@@ -672,11 +799,13 @@ junonia_request () {
     fi
 
     # Was a _callback supplied?
-    echodebug "checking to see if "$1" is a callback"
+    echodebug "checking to see if callback was supplied: $1"
     if [ junonia_require_cmds "$1" 2>/dev/null ]; then
       echodebug "found callback command $1"
       _callback="$1"
       shift
+    else
+      echodebug "no callback command found"
     fi
   fi
 
@@ -771,6 +900,7 @@ junonia_request () {
 
   _resp_body="$(printf '%s' "$_resp" | awk '!/^http_code/; /^http_code/{next}')"
   _resp_code="$(printf '%s' "$_resp" | awk '!/^http_code/{next} /^http_code/{print $2}')"
+
   JW_LAST_RESP_CODE="$_resp_code"
 
   echodebug "extracted response code: $_resp_code"

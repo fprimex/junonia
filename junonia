@@ -181,7 +181,6 @@ junonia_awk_hardwrap_line='
   # wrapped Final wrapped result
   function hardwrap_line(line, width, pre, float,
                     str, n, wrapped) {
-
     # The start of the line will be removed as it is wrapped, so continue
     # producing wrapped lines as long as line is longer than the wrap width.
     while(length(line) > width) {
@@ -289,7 +288,6 @@ junonia_awk_twocol='
   # formatted Final result
   function twocol(t1, t2, col1, col2, gutter, pre, f1, f2,
                   fmt, t1a, t2a, i, j, n, m, formatted) {
-
     # Wrap each line to the desired column width.
     t1 = hardwrap(t1, col1, pre, f1)
     t2 = hardwrap(t2, col2, "", f2)
@@ -312,7 +310,9 @@ junonia_awk_twocol='
         formatted = formatted t1a[i] "\n"
         i++
       } else {
-        formatted = formatted sprintf(fmt, t1a[i], t2a[j]) "\n"
+        formatted = formatted sprintf(fmt, t1a[i], t2a[j])
+        sub(/ *$/, "", formatted)
+        formatted = formatted "\n"
         i++
         j++
       }
@@ -498,6 +498,21 @@ junonia_awk_end_jqprog='
   }
 '
 
+junonia_awk_isort='
+  function isort(A, start, end,
+                 i, j, value) {
+    for(i = start; i <= end; i++) {
+      value = A[i]
+      j = i - 1
+      while( ( j > start-1) && ( A[j] > value ) ) {
+        A[j+1] = A[j]
+        j--
+      }
+      A[j+1] = value
+    }
+  }
+'
+
 
 readonly JUNONIA_AWKS="
 $junonia_awk_hardwrap_line
@@ -514,6 +529,7 @@ $junonia_awk_mapbool
 $junonia_awk_make_jqarg
 $junonia_awk_make_jqprog
 $junonia_awk_end_jqprog
+$junonia_awk_isort
 "
 
 
@@ -761,6 +777,17 @@ _junonia_md2spec () {
         print indent "  -JUNONIA_WEB_METHOD METHOD=" jw_method
         print indent "  -JUNONIA_CONTENT_TYPE TYPE=" jw_content_t
         print indent "  -JUNONIA_WEB_URL URL=" jw_url
+        print indent "  -json"
+      }
+
+      if(output_text) {
+        if(output_table == 1) {
+          insert_jtable()
+          output_table = 0
+        }
+
+        gsub(/\n/, "\\\\n", output_text)
+        print indent "  -JUNONIA_OUTPUT OUTPUT=" output_text
       }
 
       for(i=1; i<=n_opts; i++) {
@@ -769,30 +796,112 @@ _junonia_md2spec () {
 
       indent = ""
       cmd = ""
+      output_text = ""
       n_params = 0
       n_opts = 0
-      n_tables = 0
-      n_fmts = 0
-      n_fmt_codes = 0
       split("", params, ":")
       split("", opts, ":")
-      split("", tables, ":")
-      split("", fmts, ":")
-      split("", fmt_codes, ":")
       junonia_web = 0
+    }
+
+    function md_to_jq(s, r, a, i) {
+      n = split(s, a, /`/)
+      for(i=1; i<=n; i++) {
+        if(i % 2 == 1) {
+          r = r a[i]
+        } else {
+          r = r "\\(" a[i] ")"
+        }
+      }
+      sub(/  $/, "", r)
+      return r
+    }
+
+    function insert_jtable() {
+      if(n_cols > n_headers) {
+        root_element = rowa[n_cols-1]
+        gsub(/`/, "", root_element)
+        table_cols = table_cols "]"
+      } else {
+        root_element = "."
+        table_cols = table_cols "," rowa[n_cols-1] "]"
+      }
+
+      manual_fmt = 0
+      for(i=2; i<n_headers; i++) {
+        echodebug("header: " headersa[i])
+        echodebug("row: " rowa[i])
+
+        h = headersa[i]
+        r = rowa[i]
+        hlen = length(h)
+        rlen = length(r)
+        sub(/^ */, "", h)
+        sub(/ *$/, "", h)
+        sub(/^ */, "", r)
+        sub(/ *$/, "", r)
+        hstriplen = length(h)
+        rstriplen = length(r)
+
+        echodebug("hlen: " hlen)
+        echodebug("rlen: " rlen)
+        echodebug("hstriplen: " hstriplen)
+        echodebug("rstriplen: " rstriplen)
+
+        if(hstriplen > rstriplen) {
+          if(substr(headersa[i], hlen) == " ") {
+            manual_fmt = 1
+            break
+          }
+        } else {
+          echodebug(substr(rowa[i], rlen))
+          if(substr(rowa[i], rlen) == " ") {
+            manual_fmt = 1
+            break
+          }
+        }
+      }
+      echodebug("manual_fmt: " manual_fmt)
+
+      gsub(/`/, "\"", table_cols)
+
+      if(! manual_fmt) {
+        gsub(" *" jfs "|$", "", table_headers)
+      }
+
+      if(output_text) {
+        output_text = output_text "\n" SOH
+      } else {
+        output_text = SOH
+      }
+
+      output_text = output_text "\n" "junonia_format_jtable"
+      output_text = output_text "\n" STX
+      output_text = output_text "\n\",\"" "\\(jtable({\"element\":" root_element ",\"columns\":" table_cols "}))\",\"" JRS
+      output_text = output_text "\n" ETX
+      output_text = output_text "\n" STX
+      output_text = output_text "\n" table_headers
+      output_text = output_text "\n" ETX
+      output_text = output_text "\n" EOT
+      output_text = output_text "\n"
     }
 
     # When encountering a header, leave any header we were in.
     /^#/ {
+      if(output_table == 1) {
+        insert_jtable()
+        sub(JRS, "", output_text)
+      }
+
       synopsis = 0
       positional = 0
       options = 0
       endpoint = 0
       content_type = 0
       output = 0
-      table_output = 0
-      fmt_output = 0
-      fmt_code_output = 0
+      output_icode = 0
+      output_tcode = 0
+      output_table = 0
     }
 
     # Top level ## header
@@ -943,60 +1052,113 @@ _junonia_md2spec () {
 
     /^### Output/ {
       output = 1
-      output_spec = "outputs"
+      next
     }
 
-    output && tolower($0) ~ "^\*.*table" {
-      table_output = 1
-      m = match($0, /`\..*`/)
-      if(m) {
-        table_root = substr($0, RSTART+1, RLENGTH-2)
-      } else {
-        table_root = "."
-      }
-      n_tables++
+    output && /^    / {
+     output_icode = 1
     }
 
-    table_output && /^  \* .*`\..*`/ {
-      sub(/^  \* /, "")
-      m = match($0, /^[^`]+`/)
-      heading = substr($0, 1, RLENGTH-1)
-
-      m = match($0, /`\..*`/)
-      col_sel = substr($0, RSTART+1, RLENGTH-2)
-
-      tables[n_tables col_sel] = heading
-    }
-
-		output && tolower($0) ~ "^\*.*(listing|format)" {
-			format_output = 1
-      n_fmts++
-		}
-
-		format_output && /^  \* .*`\..*`/ {
-			sub(/^  \* /, "")
-      gsub(/`\./, "\\(")
-      gsub(/`/, ")")
-			fmts[n_fmts] = fmts[n_fmts] $0 "\n"
-		}
-
-		output && /^    / {
-      fmt_code_output = 1
-      n_fmt_codes++
-    }
-
-    fmt_code_output && /^    / {
+    output_icode && ( /^    / || /^$/ ) {
       sub(/^    /, "")
-      fmt_codes[n_fmt_codes] = fmt_codes[n_fmt_codes] $0 "\n"
+      output_text = output_text "\n" $0
+      next
+    }
+
+    output_icode && ! (/^$/ || /^    /) {
+      output_icode = 0
+    }
+
+    output_tcode && /^```/ {
+      output_tcode = 0
+      next
+    }
+
+    output && /^```/ {
+      output_tcode = 1
+      next
+    }
+
+    output_tcode {
+      output_text = output_text "\n" $0
+      next
+    }
+
+    # divider row
+    output_table && /^\|[- \|]+$/ {
+      next
+    }
+
+    output_table && /^\|/ {
+      n_cols = split($0, rowa, /\|/)
+
+      sub(/^ /, "", rowa[2])
+      sub(/ $/, "", rowa[2])
+      table_cols = "[" rowa[2]
+
+      for(i=3; i<n_cols-1; i++) {
+        sub(/^ /, "", rowa[i])
+        sub(/ $/, "", rowa[i])
+        table_cols = table_cols "," rowa[i]
+      }
+
+      sub(/^ /, "", rowa[n_cols-1])
+      sub(/ $/, "", rowa[n_cols-1])
+
+      next
+    }
+
+    output_table && /^$/ {
+      insert_jtable()
+      output_table = 0
+      next
+    }
+
+    output && /^\|/ {
+      output_table = 1
+      table_headers = ""
+      table_cols = ""
+
+      n_headers = split($0, headersa, /\|/)
+
+      sub(/^ /, "", headersa[2])
+      sub(/ $/, "", headersa[2])
+      table_headers = headersa[2]
+
+      for(i=3; i<n_headers; i++) {
+        sub(/^ /, "", headersa[i])
+        sub(/ $/, "", headersa[i])
+        table_headers = table_headers JFS headersa[i]
+      }
+
+      next
+    }
+
+    output && output_text {
+      output_text = output_text "\n" md_to_jq($0)
+      next
+    }
+
+    output {
+      output_text = md_to_jq($0)
+      next
     }
 
     END {
+      if(output_table == 1) {
+        insert_jtable()
+        sub(JRS, "", output_text)
+        output_table = 0
+      }
+
       spec()
     }
   '
 
   awk -v wrap="$JUNONIA_WRAP" -v col1="$JUNONIA_COL1" \
       -v col2="$JUNONIA_COL2" \
+      -v SOH="$JSOH" -v STX="$JSTX" -v ETX="$JETX" -v EOT="$JEOT" \
+      -v JUS="$JUS"  -v JRS="$JRS"  -v JFS="$JFS" \
       "$JUNONIA_AWKS $awk_prog" "$@"
 }
 
@@ -2072,7 +2234,9 @@ junonia_init () {
   # JUNONIA_CACHEDIR   Path to cache directory
   # JUNONIA_CACHE      Flag to optionally disable (0) caching
   # JUNONIA_INIT       Init guard to prevent attempted re-inits
-  # JFS                Information separators
+  # JSTX               Communication control characters
+  # JETX
+  # JFS                Information separator control characters
   # JGS
   # JRS
   # JUS
@@ -2091,11 +2255,17 @@ junonia_init () {
 
   readonly JUNONIA_VERSION="1.0.11dev"
 
-  # Information Separator control characters (IS4 - IS1)
-  readonly JFS="" # File   Separator (FS / IS4 / dec 28)
-  readonly JGS="" # Group  Separator (GS / IS3 / dec 29)
-  readonly JRS="" # Record Separator (RS / IS2 / dec 30)
+  # Communication control characters (TC1 - TC4
+  readonly JSOH="" # Start of heading    (SOH / TC1 / dec 1)
+  readonly JSTX="" # Start of text       (STX / TC2 / dec 2)
+  readonly JETX="" # End of text         (ETX / TC3 / dec 3)
+  readonly JEOT="" # End of transmission (EOT / TC4 / dec 4)
+
+  # Information Separator control characters (IS1 - IS4)
   readonly JUS="" # Unit   Separator (US / IS1 / dec 31)
+  readonly JRS="" # Record Separator (RS / IS2 / dec 30)
+  readonly JGS="" # Group  Separator (GS / IS3 / dec 29)
+  readonly JFS="" # File   Separator (FS / IS4 / dec 28)
 
   # Use TMPDIR if it is set. If not, set it to /tmp
   if [ -z "$TMPDIR" ]; then
@@ -2447,14 +2617,14 @@ _junonia_set_args () {
                 opts[ARGV[i]] = ARGV[i+1]
                 echodebug(ARGV[i+1])
               }
-            }
 
-            # This was an option with a value, so remove both the option and the
-            # value (the next argument), and then additionally jump i forward to
-            # the next array index, since that does not shift during this loop.
-            delete ARGV[i]
-            delete ARGV[i+1]
-            i++
+              # This was an option with a value, so remove both the option and the
+              # value (the next argument), and then additionally jump i forward to
+              # the next array index, since that does not shift during this loop.
+              delete ARGV[i]
+              delete ARGV[i+1]
+              i++
+            }
           }
         } else {
           if(substr(ARGV[i], 1, 1) == ".") {
@@ -2596,6 +2766,12 @@ _junonia_set_args () {
         next
       }
 
+      if(a[1] == "-JUNONIA_OUTPUT") {
+        j_output = substr($0, index($0, "=") + 1, length($0))
+        echodebug("  j_output = " j_output)
+        next
+      }
+
       if(opt) {
         # This option from the spec is one we have in the program arguments.
 
@@ -2718,7 +2894,7 @@ _junonia_set_args () {
               next
             }
           } else {
-            if(junonia_web) {
+            if(junonia_web && opt != "-json") {
               args = args substr(opt, 2) "=" optval
             } else {
               args = args optval
@@ -2844,9 +3020,22 @@ _junonia_set_args () {
         }
       }
 
+      # Add the end of the jq program that can produce the JSON value
+      end_jqprog()
+
       # If the config subcommand was specified, append it to the function name
       if(config) {
         func_name = config "_config"
+      }
+
+      # If there was an output section add that
+      # junonia_web always expects to get an output arg, even if empty
+      if(j_output) {
+        args = j_output JRS args
+      } else {
+        if(junonia_web) {
+          args = "" JRS args
+        }
       }
 
       # This is a junonia_web call
@@ -2855,14 +3044,11 @@ _junonia_set_args () {
         func_name = "junonia_web"
       }
 
-      # Add the end of the jq program that can produce the JSON value
-      end_jqprog()
-
       # Output everything properly separated for processing.
       print jqprog JGS func_name JRS args
     }'
 
-  echo "$spec" | awk -v "JGS=$JGS" \
+  printf "%s\n" "$spec" | awk -v "JGS=$JGS" \
                      -v "JRS=$JRS" \
                      -v "JUS=$JUS" \
                      "$JUNONIA_AWKS $awk_prog" - "$JUNONIA_NAME" "$@"
