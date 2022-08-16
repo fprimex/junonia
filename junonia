@@ -790,10 +790,10 @@ _junonia_md2spec () {
       }
 
       if(junonia_web) {
-        print indent "  -json"
         if(!output_text) {
           print indent "  -JUNONIA_OUTPUT OUTPUT="
         }
+        print indent "  -json"
       }
 
       for(i=1; i<=n_opts; i++) {
@@ -2296,7 +2296,7 @@ junonia_init () {
     return
   fi
 
-  readonly JUNONIA_VERSION="1.1.0"
+  readonly JUNONIA_VERSION="1.1.1"
 
   # Communication control characters (TC1 - TC4
   readonly JSOH="" # Start of heading    (SOH / TC1 / dec 1)

@@ -611,7 +611,7 @@ junonia_web () {
     echodebug "output:"
     echodebug_raw "$output"
 
-    if [ -n "$output" ] && [ -z "$json" ]; then
+    if ( [ -n "$output" ] && [ "$JSOH" != "$output" ] ) && [ -z "$json" ]; then
       set --
       printf "%s" "$resp" | \
       jq -r --arg jfs $JFS "$JUNONIA_JQS \"$output\"" | \
