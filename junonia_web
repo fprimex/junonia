@@ -205,9 +205,16 @@ $_junonia_web_cmds"
     JW_CURL_SILENT="-s"
   fi
 
+  junonia_auth_config
+
   readonly JW_DEFAULT_CURLRC="$JUNONIA_CONFIGDIR/curlrc"
   readonly JW_CURLRC="${JW_CURLRC:-"$JW_DEFAULT_CURLRC"}"
+  # Indicate that init has happened
+  readonly JW_INIT=1
+}
 
+
+junonia_auth_config () {
   JW_AUTH_SRC=
   if [ -n "$JW_AUTH" ]; then
     JW_AUTH_SRC=env
@@ -227,9 +234,6 @@ $_junonia_web_cmds"
       JW_AUTH="--user $JW_BASIC"
     fi
   fi
-
-  # Indicate that init has happened
-  readonly JW_INIT=1
 }
 
 
@@ -294,7 +298,9 @@ $junonia_jq_jtable
 "
 
 junonia_jprint () {
-  echodebug "#### $@"
+  echodebug "junonia_jprint"
+  echodebug_raw "$@"
+
   # A printing program is always required
   jq_prog="$1"
   shift
@@ -303,6 +309,8 @@ junonia_jprint () {
     echoerr 'a jq program is required in order to jprint'
     return 1
   fi
+
+  echodebug "jq_prog: $jq_prog"
   
   # Now, with the program shifted
   # $1: JSON body
@@ -333,12 +341,15 @@ junonia_jprint () {
     _jqargs="--args $@"
   fi
 
+  # TODO: consider coming back to this. it caused issues with consolidating
+  #       arguments on the command line.
+  #
   # no explicit selector in the function call, but a json arg at the CLI
-  if [ -z "$_selector" ]; then
-    if [ -n "$JW_JQARGS" ]; then
-      _selector=$(echo "$JW_JQARGS" | head -n 1)
-    fi
-  fi
+  #if [ -z "$_selector" ]; then
+  #  if [ -n "$JW_JQARGS" ]; then
+  #    _selector=$(echo "$JW_JQARGS" | head -n 1)
+  #  fi
+  #fi
 
   echodebug "initial body:"
   echodebug_raw "$_body"
@@ -377,6 +388,7 @@ junonia_jprint () {
 # Pretty print JSON as text with each key/value on a single line and no
 # brackets, quotes, or other formatting.
 junonia_jtree () {
+  echodebug 'junonia_jtree'
   jq_prog='jleaf({"element":.,"indent":""})'
   echodebug 'jtree jqprog'
   echodebug_raw "$jq_prog"
@@ -680,7 +692,7 @@ junonia_web () {
         esac
       done
     else
-      printf "%s" "$resp"
+      printf "%s\n" "$resp"
     fi
 }
 
@@ -692,8 +704,8 @@ junonia_web () {
 # junonia_request <method> <method specific options> <curl url and options>
 #
 # Perform a page request and get pages using the selected url up to a default
-# junonia__request <jq selector> <method> <method specific options> \
-#                  <curl url and options>
+# junonia_request <jq selector> <method> <method specific options> \
+#                 <curl url and options>
 #
 # Perform a page request and get pages using the selected url up to a limit
 # junonia_request <integer pages to retrieve> <jq selector> <method> \
@@ -775,7 +787,13 @@ junonia_request () {
     fi
 
     if [ -z "$_content_t" ]; then
-      _content_t="${JW_CONTENT_TYPE:-"application/octet-stream"}"
+      if [ "$_method" = POST ]; then
+        echodebug "set default content type to application/json"
+        _content_t="application/json"
+      else
+        echodebug "set default content type to application/octet-stream"
+        _content_t="${JW_CONTENT_TYPE:-"application/octet-stream"}"
+      fi
     fi
 
     # Was a page limit provided?
@@ -809,11 +827,12 @@ junonia_request () {
     fi
   fi
 
-  echodebug "method:   $_method"
-  echodebug "url:      $_url"
-  echodebug "npages:   $_npages"
-  echodebug "selector: $_selector"
-  echodebug "callback: $_callback"
+  echodebug "method:    $_method"
+  echodebug "url:       $_url"
+  echodebug "content_t: $_content_t"
+  echodebug "npages:    $_npages"
+  echodebug "selector:  $_selector"
+  echodebug "callback:  $_callback"
   echodebug "remaining args to curl: $@"
   echodebug "payload:"
   echodebug_raw "$_payload"
@@ -861,21 +880,25 @@ junonia_request () {
   case "$JW_AUTH_SRC" in
     curl)
       _autharg="$JW_AUTH"
+      _autharg_debug='$JW_AUTH_REDACTED (curl)'
       ;;
     oauth)
-      _autharg='--oauth2-bearer $TOKEN_REDACTED'
+      _autharg="--oauth2-bearer $JW_OAUTH"
+      _autharg_debug='--oauth2-bearer $JW_OAUTH_REDACTED'
       ;;
     basic)
-      _autharg='--user $user@$password_REDACTED'
+      _autharg="--basic --user $JW_BASIC"
+      _autharg_debug='--basic --user $JW_BASIC_REDACTED'
       ;;
     env)
-      _autharg='$JW_AUTH'
+      _autharg="$JW_AUTH"
+      _autharg_debug='$JW_AUTH_REDACTED (env)'
       ;;
   esac
 
   echovvv "curl --header \"Content-Type: $_content_t\"" >&2
-  if [ -n "$_autharg"]; then
-    echovvv "$_autharg"
+  if [ -n "$_autharg_debug" ]; then
+    echovvv "$_autharg_debug"
   fi
   if [ -n "$_payload" ]; then
     echovvv "--data \"$_payload\""
@@ -886,12 +909,14 @@ junonia_request () {
     _resp="$(curl $JW_CURL_SILENT -w '\nhttp_code: %{http_code}\n' \
                   $_autharg \
                   "$_url" \
+                  -H "Content-Type: $_content_t\"" \
                   $@)"
   else
-    _resp="$(curl $JW_CURL_SILENT -w '\nhttp_code: %{http_code}\n' \
+    _resp="$(curl $JW_CURL_SILENT "$_url" -w '\nhttp_code: %{http_code}\n' \
                   $_autharg \
-                  --data "$_payload" \
-                  "$_url" \
+                  -X "$_method" \
+                  -d "$_payload" \
+                  -H "Content-Type: $_content_t" \
                   $@)"
   fi
 
@@ -934,7 +959,7 @@ junonia_request () {
     4*|5*)
       echoerr "API request failed."
       echoerr_raw "HTTP status code: $_resp_code"
-      if json_err="$(junonia_jtree "$_resp_body" "$JW_ERR_SELECTOR")"; then
+      if _json_err="$(junonia_jtree "$_resp_body" "$JW_ERR_SELECTOR")"; then
         echoerr_raw "Details:"
         echoerr_raw "$_json_err"
       else

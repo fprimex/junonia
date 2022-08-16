@@ -777,7 +777,6 @@ _junonia_md2spec () {
         print indent "  -JUNONIA_WEB_METHOD METHOD=" jw_method
         print indent "  -JUNONIA_CONTENT_TYPE TYPE=" jw_content_t
         print indent "  -JUNONIA_WEB_URL URL=" jw_url
-        print indent "  -json"
       }
 
       if(output_text) {
@@ -788,6 +787,13 @@ _junonia_md2spec () {
 
         gsub(/\n/, "\\\\n", output_text)
         print indent "  -JUNONIA_OUTPUT OUTPUT=" output_text
+      }
+
+      if(junonia_web) {
+        print indent "  -json"
+        if(!output_text) {
+          print indent "  -JUNONIA_OUTPUT OUTPUT="
+        }
       }
 
       for(i=1; i<=n_opts; i++) {
@@ -1056,7 +1062,7 @@ _junonia_md2spec () {
     }
 
     output && /^    / {
-     output_icode = 1
+      output_icode = 1
     }
 
     output_icode && ( /^    / || /^$/ ) {
@@ -1181,6 +1187,10 @@ _junonia_md2help () {
 
     # When encountering a header, leave any header we were in.
     /^#/ {
+      if(positional_no_desc) {
+        txt = txt twocol(param_col1, "", col1 - 3, col2, " ", "  ") "\n"
+      }
+
       # When leaving a header and processing docs, add a separating newline
       # (e.g. between the last line of description and start of OPTIONS)
       # but only if text was added when passing through a section
@@ -1188,12 +1198,14 @@ _junonia_md2help () {
         txt = txt "\n"
       }
 
+
       title = 0
       synopsis = 0
       description = 0
       positional = 0
       options = 0
       added_txt = 0
+      positional_no_desc = 0
     }
 
     # Top level "##" header
@@ -1213,16 +1225,21 @@ _junonia_md2help () {
         echodebug("end command documentation")
       }
 
-      # Extract the commands, subcommands, and aliases in this header
-      hn = split($0, header_parts)
+      # Smush the aliases together to make them grouped when split on spaces
+      sub(/, +/, ",")
+      sub(/ +,/, ",")
 
-      # Extract only the subcommands and aliases starting at the current depth
-      # as keys (array indices) so it can be checked with an "in" expression
-      # later. Also, need to empty the array first.
+      # Extract the commands, subcommands, and aliases in this header
       split("", subcmds, ":")
-      for(j=i; j<=hn; j++) {
-        sub(/,/, "", header_parts[j])
-        subcmds[header_parts[j]] = ""
+      hn = split($0, subcmds)
+
+      # Extract aliases as keys (array indices) so it can be checked with an
+      # "in" expression later. Also, need to empty the array first.
+      split("", aliases, ":")
+      an = split(subcmds[hn], aliases, ",")
+      for(j=1; j<=an; j++) {
+        aliases[aliases[j]] = ""
+        delete aliases[j]
       }
     }
 
@@ -1260,16 +1277,40 @@ _junonia_md2help () {
     # At this point i > 1
 
     # Keep looking at titles until the whole command is located
-    title && i < n && cmda[i] in subcmds {
+    i > 1 && n == hn {
+      echodebug("    " i "<" n " " title " " cmda[i] " == " subcmds[i])
+      for(j=1; j<=hn; j++) {
+        echodebug("      " j " " subcmds[j])
+      }
+    }
+
+    title && i < n && n == hn && cmda[i] == subcmds[i] {
+      for(j=1; j<i; j++) {
+        if(cmda[j] != subcmds[j]) {
+          next
+        }
+      }
       i++
       next
     }
 
     # The whole command has been found, so document it and get set up to
     # identify and document the subcommand summary
-    title && i == n && cmda[n] in subcmds {
+    #title && i == n && cmda[n] in subcmds {
+    title && i == n && n == hn && cmda[n] in aliases {
+      # Everything up to this point has to match up also
+      for(j=1; j<i; j++) {
+        if(cmda[j] != subcmds[j]) {
+          next
+        }
+      }
+
       # This is the header line with all Markdown stripped
       cmd_part = $0
+
+      # Unsmush any aliases
+      sub(/,/, ", ", cmd_part)
+
       txt = txt "  " cmd_part "\n"
       added_txt = 1
 
@@ -1377,10 +1418,12 @@ _junonia_md2help () {
     positional && /^\* `[-_A-Z0-9]+`/ {
       gsub(/`/, "")
       param_col1 = $2
+      positional_no_desc = 1
     }
 
     positional && /^[A-Za-z0-9]/ {
       txt = txt twocol(param_col1, $0, col1 - 3, col2, " ", "  ") "\n"
+      positional_no_desc = 0
       added_txt = 1
     }
 
@@ -2074,7 +2117,7 @@ _junonia_normalize_func () {
         echo junonia${1#$JUNONIA_NAME}
         return 0
       fi
-    done 
+    done
   fi
 
   echo "$1"
@@ -2504,6 +2547,10 @@ _junonia_set_args () {
   spec="$1"
   shift
 
+  # The spec is usually quite long, so suppress the printing here unless needed.
+  #echodebug "spec:"
+  #echodebug "$spec"
+
   readonly JUNONIA_ARGS="$*"
 
   # Spaces and newlines need to be ignored when passing the determined values
@@ -2588,9 +2635,9 @@ _junonia_set_args () {
               echodebug("empty")
 
             } else {
-              
+
               if(next_argchar == ".") {
-                if(next_next_argchar != "." && 
+                if(next_next_argchar != "." &&
                    next_next_argchar != "-" &&
                    next_next_argchar != ""  ) {
 
@@ -2974,6 +3021,8 @@ _junonia_set_args () {
 
           indents = indents "  "
           echodebug("")
+          echodebug("envname: " envname)
+          echodebug("func_name: " func_name)
           echodebug("indents: " length(indents))
           p++
           next
@@ -2990,7 +3039,7 @@ _junonia_set_args () {
       if(junonia_web) {
         # Determine how many upper case parameters there are to replace in the url
         tmp_url = jw_url
-        n_opts = gsub(/{[-_\.A-Z]+}/, "", tmp_url)
+        n_opts = gsub(/{[-_\.A-Z0-9]+}/, "", tmp_url)
 
         # If more parameter values were given than can be substituted, error
         if(positional_params > n_opts) {
@@ -3081,8 +3130,14 @@ junonia_run () {
   for docdir in "$JUNONIA_PATH/usr/share/doc/$JUNONIA_NAME" \
                 "$JUNONIA_PATH/docs" \
                 "$JUNONIA_PATH/doc"; do
-    if [ -d "$docdir" ] && [ -f "$docdir/$JUNONIA_NAME.md" ]; then
-      JUNONIA_DOCDIR="$docdir"
+    if [ -d "$docdir" ]; then
+      if [ -f "$docdir/$JUNONIA_NAME.md" ]; then
+        JUNONIA_DOCDIR="$docdir"
+      else
+        echodebug "top doc file not present: $docdir/$JUNONIA_NAME.md"
+      fi
+    else
+      echodebug "docdir not present: $docdir"
     fi
   done
 
@@ -3288,8 +3343,7 @@ _junonia_run_final () {
       ' "$_junonia_cmds" -
     )"
 
-    # The spec is usually quite long and will be shown in the debug output as
-    # an argument to exec, so suppress the printing here unless needed.
+    # The spec is usually quite long, so suppress the printing here unless needed.
     #echodebug "final spec"
     #echodebug_raw "$spec"
 
@@ -3370,6 +3424,14 @@ _junonia_exec () {
     shift
     jw_url="$1"
     shift
+    jw_output="$1"
+    shift
+
+    echodebug "jw_func:      $jw_func"
+    echodebug "jw_method:    $jw_method"
+    echodebug "jw_content_t: $jw_content_t"
+    echodebug "jw_url:       $jw_url"
+    echodebug "jw_output:    $jw_output"
   fi
 
   if [ -z "$func" ]; then
@@ -3485,7 +3547,7 @@ _junonia_exec () {
   # A function file was found and sourced, and the function was found. Execute
   # the function.
   if [ "$func" = "junonia_web" ]; then
-    $JUNONIA_FUNC "$jw_func" "$jw_method" "$jw_content_t" "$jw_url" "$@"
+    $JUNONIA_FUNC "$jw_func" "$jw_method" "$jw_content_t" "$jw_url" "$jw_output" "$@"
   else
     $JUNONIA_FUNC "$@"
   fi
