@@ -497,8 +497,6 @@ junonia_web () {
   shift
   output="$1"
   shift
-  json="$1"
-  shift
 
   echodebug "junonia_web $func_name $method $url"
 
@@ -525,12 +523,14 @@ junonia_web () {
 
   # Remove the number of upper case parameters replaced by addl parameters
   n_opts=$(( $n_opts - $addl_subs ))
+  echodebug "n_opts:$n_opts addl_subs:$addl_subs #args:$#"
 
   # For that many options, shift off values and substitute the parameter.
   # Parameters are of the form FOO=bar, where FOO is always uppercase.
   i=0
   n_subs=0
   while [ $i -lt $# ] && [ $i -lt $n_opts ]; do
+    echodebug "substituting $1"
     url="$(echo "$url" | awk -v "param=$1" '{
       split(param, a, "=")
       did_sub = sub("{" a[1] "}", a[2])
@@ -539,9 +539,11 @@ junonia_web () {
     }')"
     n_subs=$(( $n_subs + $? ))
     i=$(( $i+1 ))
+    echodebug "n_subs:$n_subs"
     shift
   done
 
+  echodebug "n_subs:$n_subs n_opts:$n_opts"
   if [ "$n_subs" -lt "$n_opts" ]; then
     echoerr "Mismatch on number of parameters and url"
     echoerr "Cannot continue with $url"

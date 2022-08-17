@@ -3083,7 +3083,7 @@ _junonia_set_args () {
         args = j_output JRS args
       } else {
         if(junonia_web) {
-          args = "" JRS args
+          args = JRS args
         }
       }
 
