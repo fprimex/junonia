@@ -622,16 +622,16 @@ junonia_web () {
             tpl_arg=
             output_tpl=1
             get_tpl="cmd"
-            echodebug "SOH"
-            echodebug "cmd: $tpl_cmd"
-            echodebug "arg: $tpl_arg"
+            #echodebug "SOH"
+            #echodebug "cmd: $tpl_cmd"
+            #echodebug "arg: $tpl_arg"
             ;;
           $JEOT)
-            echodebug "EOT"
-            echodebug "cmd: $tpl_cmd"
-            echodebug "arg: $tpl_arg"
+            #echodebug "EOT"
+            #echodebug "cmd: $tpl_cmd"
+            #echodebug "arg: $tpl_arg"
 
-            echodebug "tpl_cmd: $tpl_cmd $@"
+            #echodebug "tpl_cmd: $tpl_cmd $@"
             $tpl_cmd "$@"
 
             output_tpl=
@@ -639,17 +639,17 @@ junonia_web () {
             ;;
           $JSTX)
             get_tpl="newarg"
-            echodebug "STX"
-            echodebug "cmd: $tpl_cmd"
-            echodebug "arg: $tpl_arg"
+            #echodebug "STX"
+            #echodebug "cmd: $tpl_cmd"
+            #echodebug "arg: $tpl_arg"
             ;;
           $JETX)
             set "$@" "$tpl_arg"
             tpl_arg=
             get_tpl=
-            echodebug "ETX"
-            echodebug "cmd: $tpl_cmd"
-            echodebug "arg: $tpl_arg"
+            #echodebug "ETX"
+            #echodebug "cmd: $tpl_cmd"
+            #echodebug "arg: $tpl_arg"
             ;;
           *)
             if [ $output_tpl ]; then
@@ -657,36 +657,36 @@ junonia_web () {
                 cmd)
                   tpl_cmd="$line"
                   get_tpl=
-                  echodebug "* cmd"
-                  echodebug "cmd: $tpl_cmd"
-                  echodebug "arg: $tpl_arg"
+                  #echodebug "* cmd"
+                  #echodebug "cmd: $tpl_cmd"
+                  #echodebug "arg: $tpl_arg"
                   ;;
                 newarg)
                   if [ "$line" != "" ]; then
                     tpl_arg="$tpl_arg$line"
-                    echodebug "* arg1"
-                    echodebug "cmd: $tpl_cmd"
-                    echodebug "arg: $tpl_arg"
+                    #echodebug "* arg1"
+                    #echodebug "cmd: $tpl_cmd"
+                    #echodebug "arg: $tpl_arg"
                     get_tpl=arg
                   fi
                   ;;
                 arg)
                   tpl_arg="$(printf "%s\n%s" "$tpl_arg" "$line")"
-                  echodebug "* arg2"
-                  echodebug "cmd: $tpl_cmd"
-                  echodebug "arg: $tpl_arg"
+                  #echodebug "* arg2"
+                  #echodebug "cmd: $tpl_cmd"
+                  #echodebug "arg: $tpl_arg"
                   ;;
                 *)
                   tpl_cmd="$tpl_cmd\n$line"
                   get_tpl=""
-                  echodebug "* cmd2"
-                  echodebug "cmd: $tpl_cmd"
-                  echodebug "arg: $tpl_arg"
+                  #echodebug "* cmd2"
+                  #echodebug "cmd: $tpl_cmd"
+                  #echodebug "arg: $tpl_arg"
                   ;;
                 esac
             else
               printf "%s\n" "$line"
-              echodebug "*"
+              #echodebug "*"
             fi
             ;;
         esac
