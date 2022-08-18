@@ -2136,7 +2136,7 @@ junonia_cache_file () {
       mkdir -p "$JUNONIA_CACHEDIR/$d"
     fi
 
-    echo "$contents" > "$JUNONIA_CACHEDIR/$cachepath"
+    printf '%s' "$contents" > "$JUNONIA_CACHEDIR/$cachepath"
   else
     echodebug "skipping, caching disabled"
   fi
@@ -2753,19 +2753,6 @@ _junonia_set_args () {
       p = 1
     }
 
-    in_output && $0 ~ JEOT {
-      j_output = j_output "\n" $0
-      in_output = 0
-      echodebug("j_output: " j_output)
-      next
-    }
-
-    in_output {
-      j_output = j_output "\n" $0
-      echodebug("output: " $0)
-      next
-    }
-
     # Skip lines starting with # and blank lines
     /^ #/ || /^$/ {
       next
@@ -2828,8 +2815,6 @@ _junonia_set_args () {
 
       if(a[1] == "-JUNONIA_OUTPUT") {
         j_output = substr($0, index($0, "=") + 1, length($0))
-        in_output = 1
-        echodebug("collecting output text")
         next
       }
 
