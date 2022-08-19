@@ -497,13 +497,18 @@ junonia_web () {
   shift
   output="$1"
   shift
-  json="$1"
-  shift
 
-  echodebug "junonia_web $func_name $method $url"
+  echodebug "junonia_web"
+  echodebug "  func_name: $func_name"
+  echodebug "  method: $method"
+  echodebug "  content_t: $content_t"
+  echodebug "  url: $url"
+  echodebug "  output: $url"
 
   # Determine how many upper case parameters there are to replace in the url
+  echodebug "url: $url"
   n_opts="$(echo "$url" | awk '{print gsub(/{[-_\.A-Z]+}/,"")}')"
+  echodebug "url opts: $n_opts"
 
   # See if there are additional parameters coming from elsewhere.
   if [ -n "$JW_ADDL_PARAMS" ]; then
@@ -525,12 +530,20 @@ junonia_web () {
 
   # Remove the number of upper case parameters replaced by addl parameters
   n_opts=$(( $n_opts - $addl_subs ))
+  echodebug "url opts - add_opts: $n_opts"
+  echodebug "addl subs done: $addl_subs"
 
   # For that many options, shift off values and substitute the parameter.
   # Parameters are of the form FOO=bar, where FOO is always uppercase.
   i=0
   n_subs=0
   while [ $i -lt $# ] && [ $i -lt $n_opts ]; do
+    if [ -z "${1#*=}" ]; then
+      echoerr "Missing value for required parameter $1"
+      shift
+    fi
+
+    echodebug "sub($1)"
     url="$(echo "$url" | awk -v "param=$1" '{
       split(param, a, "=")
       did_sub = sub("{" a[1] "}", a[2])
@@ -541,6 +554,7 @@ junonia_web () {
     i=$(( $i+1 ))
     shift
   done
+  echodebug "arg subs done: $n_subs"
 
   if [ "$n_subs" -lt "$n_opts" ]; then
     echoerr "Mismatch on number of parameters and url"
@@ -549,6 +563,10 @@ junonia_web () {
   fi
 
   echodebug "final url: $url"
+
+  json="$1"
+  shift
+  echodebug "  json: $json"
 
   echodebug "remaining arguments ($#):"
   echodebug_raw $@
@@ -886,10 +904,6 @@ junonia_request () {
       _autharg="--oauth2-bearer $JW_OAUTH"
       _autharg_debug='--oauth2-bearer $JW_OAUTH_REDACTED'
       ;;
-    basic)
-      _autharg="--basic --user $JW_BASIC"
-      _autharg_debug='--basic --user $JW_BASIC_REDACTED'
-      ;;
     env)
       _autharg="$JW_AUTH"
       _autharg_debug='$JW_AUTH_REDACTED (env)'
@@ -909,7 +923,7 @@ junonia_request () {
     _resp="$(curl $JW_CURL_SILENT -w '\nhttp_code: %{http_code}\n' \
                   $_autharg \
                   "$_url" \
-                  -H "Content-Type: $_content_t\"" \
+                  -H "Content-Type: $_content_t" \
                   $@)"
   else
     _resp="$(curl $JW_CURL_SILENT "$_url" -w '\nhttp_code: %{http_code}\n' \
@@ -959,9 +973,11 @@ junonia_request () {
     4*|5*)
       echoerr "API request failed."
       echoerr_raw "HTTP status code: $_resp_code"
-      if _json_err="$(junonia_jtree "$_resp_body" "$JW_ERR_SELECTOR")"; then
-        echoerr_raw "Details:"
-        echoerr_raw "$_json_err"
+      if [ -n "$_resp_body" ]; then
+        if _json_err="$(junonia_jtree "$_resp_body" "$JW_ERR_SELECTOR")"; then
+          echoerr_raw "Details:"
+          echoerr_raw "$_json_err"
+        fi
       else
         echoerr "Response:"
         echoerr_raw "$_resp_body"

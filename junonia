@@ -1317,7 +1317,7 @@ _junonia_md2help () {
       # Get the last primary subcommand (not the aliases) and build a regex to
       # find this commands subcommands to document.
       split($0, subcmda, ",")
-      subcmd_re = "^" subcmda[1] " [-_A-Za-z0-9]+"
+      subcmd_re = "^" subcmda[1] " [-_A-Za-z0-9]+$"
       echodebug("  subcmd regex: " subcmd_re)
 
       cmd_doc_start = 1
@@ -2296,7 +2296,7 @@ junonia_init () {
     return
   fi
 
-  readonly JUNONIA_VERSION="1.2.1"
+  readonly JUNONIA_VERSION="1.2.2"
 
   # Communication control characters (TC1 - TC4
   readonly JSOH="" # Start of heading    (SOH / TC1 / dec 1)
