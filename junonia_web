@@ -804,6 +804,10 @@ junonia_request () {
       fi
     fi
 
+    if [ -n "$JW_CONTENT_TYPE" ]; then
+      _content_t="$JW_CONTENT_TYPE"
+    fi
+
     if [ -z "$_content_t" ]; then
       if [ "$_method" = POST ]; then
         echodebug "set default content type to application/json"
