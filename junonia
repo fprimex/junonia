@@ -985,7 +985,7 @@ _junonia_md2spec () {
 
     positional && /\[default: `.*`\]$/ {
       match($0, /\[default: `.*`\]$/)
-      def = substr($0, RSTART+11, length($0)-2)
+      def = substr($0, RSTART+12, RLENGTH-12-2)
       params[n_params] = params[n_params] "=" def
     }
 
@@ -2189,11 +2189,6 @@ _junonia_load_func () {
       done
     fi
   fi
-
-  if ! command -v "$1" >/dev/null 2>&1; then
-    echodebug "command not found: $1"
-    return 1
-  fi
 }
 
 _junonia_func_search () {
@@ -2204,33 +2199,59 @@ _junonia_func_search () {
   i=0
 
   while ! command -v $func_name >/dev/null 2>&1; do
-    case $i in
-      0) p="$searchpath/$func_name.sh";;
-      1) p="$searchpath/cmd/$func_name.sh";;
-      2) p="$searchpath/cmds/$func_name.sh";;
-      3) p="$searchpath/lib/$JUNONIA_NAME/$func_name.sh";;
-      4) p="$searchpath/lib/$JUNONIA_NAME/cmd/$func_name.sh";;
-      5) p="$searchpath/lib/$JUNONIA_NAME/cmds/$func_name.sh";;
-      6) p="$searchpath/lib/$JUNONIA_NAME/command/$func_name.sh";;
-      7) p="$searchpath/lib/$JUNONIA_NAME/commands/$func_name.sh";;
-      *) return 1
-    esac
+    for ext in sh py; do
+      case $i in
+        0) p="$searchpath/$func_name";;
+        1) p="$searchpath/cmd/$func_name";;
+        2) p="$searchpath/cmds/$func_name";;
+        3) p="$searchpath/lib/$JUNONIA_NAME/$func_name";;
+        4) p="$searchpath/lib/$JUNONIA_NAME/cmd/$func_name";;
+        5) p="$searchpath/lib/$JUNONIA_NAME/cmds/$func_name";;
+        6) p="$searchpath/lib/$JUNONIA_NAME/command/$func_name";;
+        7) p="$searchpath/lib/$JUNONIA_NAME/commands/$func_name";;
+        *) return 1
+      esac
 
-    i=$(( $i + 1 ))
+      i=$(( $i + 1 ))
 
-    # Found the function file, source it.
-    if [ -f "$p" ]; then
-      . "$p"
+      # Note that if the JUNONIA_INTERP_* variable is set manually it will be
+      # used unconditionally for the interpreter.
 
-      # Only stop the search if the sourced file actually contained the
-      # function.
-      if command -v $func_name >/dev/null 2>&1; then
-        return 0
+      echodebug "searching for $p.$ext"
+      if [ -f "$p.$ext" ]; then
+        # Found the function file
+        case "$ext" in
+          sh)
+            . "$p"
+
+            # Only stop the search if the sourced file actually contained the
+            # function.
+            if command -v $func_name >/dev/null 2>&1; then
+              JUNONIA_INTERP=${JUNONIA_INTERP_SH:=sh}
+              return 0
+            fi
+            ;;
+          py)
+            for py in python python3 pypy3 pypy; do
+              if command -v $py >/dev/null 2>&1; then
+                JUNONIA_INTERP=${JUNONIA_INTERP_PY:-$py}
+                JUNONIA_FUNCPATH="$p.$ext"
+                return 0
+              fi
+            done
+            echoerr "no suitable Python interpreter found"
+            return 1
+            ;;
+          *)
+            echoerr "unsupported extension: $ext"
+            return 1
+            ;;
+        esac
       fi
-    fi
+    done
   done
 
-  # Function was not found
+  echoerr "command not found: $1"
   return 1
 }
 
@@ -2296,7 +2317,7 @@ junonia_init () {
     return
   fi
 
-  readonly JUNONIA_VERSION="1.1.2"
+  readonly JUNONIA_VERSION="1.2.5"
 
   # Communication control characters (TC1 - TC4
   readonly JSOH="" # Start of heading    (SOH / TC1 / dec 1)
@@ -2815,7 +2836,6 @@ _junonia_set_args () {
 
       if(a[1] == "-JUNONIA_OUTPUT") {
         j_output = substr($0, index($0, "=") + 1, length($0))
-        echodebug("  j_output = " j_output)
         next
       }
 
@@ -3051,7 +3071,7 @@ _junonia_set_args () {
         # Add any extra options to the query string
         for(opt in opts) {
           value = substr(opt, 2, length(opt)) "=" opts[opt]
-          args = args value
+          args = args "&" value
         }
       } else {
         # There are leftover parameters so something was invalid.
@@ -3083,7 +3103,7 @@ _junonia_set_args () {
         args = j_output JRS args
       } else {
         if(junonia_web) {
-          args = JRS args
+          args = "" JRS args
         }
       }
 
@@ -3100,6 +3120,7 @@ _junonia_set_args () {
   printf "%s\n" "$spec" | awk -v "JGS=$JGS" \
                      -v "JRS=$JRS" \
                      -v "JUS=$JUS" \
+                     -v "JEOT=$JEOT" \
                      "$JUNONIA_AWKS $awk_prog" - "$JUNONIA_NAME" "$@"
 }
 
@@ -3446,6 +3467,7 @@ _junonia_exec () {
     # If the user filter is getting skipped then a meta parameter is being run.
     # So the script's top level positional parameters and options need to be
     # filtered out. Does not apply to config and help.
+    JUNONIA_INTERP=sh
     if [ "$func" = _junonia_help ] || [ "$func" = _junonia_config ]; then
       shift_n=0
     else
@@ -3549,7 +3571,25 @@ _junonia_exec () {
   if [ "$func" = "junonia_web" ]; then
     $JUNONIA_FUNC "$jw_func" "$jw_method" "$jw_content_t" "$jw_url" "$jw_output" "$@"
   else
-    $JUNONIA_FUNC "$@"
+    echodebug "JUNONIA_INTERP: $JUNONIA_INTERP"
+    case "$JUNONIA_INTERP" in
+      sh)
+        $JUNONIA_FUNC "$@"
+        ;;
+      python|python3|pypy3|pypy)
+        echodebug "executing python command"
+        PYTHONPATH="$JUNONIA_PATH/lib/python" "$JUNONIA_INTERP" "$JUNONIA_FUNCPATH" "$@"
+        ;;
+      *)
+        if command -v "$JUNONIA_INTERP"; then
+          echodebug "attempting execution with $JUNONIA_INTERP"
+          "$JUNONIA_INTERP" "$JUNONIA_FUNCPATH" "$@"
+        else
+          echoerr "Unable to execute $func with $JUNONIA_INTERP"
+          return 1
+        fi
+        ;;
+    esac
   fi
 }
 
