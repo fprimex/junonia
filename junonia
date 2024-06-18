@@ -2319,7 +2319,7 @@ junonia_init () {
 
   readonly JUNONIA_VERSION="1.2.5"
 
-  # Communication control characters (TC1 - TC4
+  # Communication control characters (TC1 - TC4)
   readonly JSOH="" # Start of heading    (SOH / TC1 / dec 1)
   readonly JSTX="" # Start of text       (STX / TC2 / dec 2)
   readonly JETX="" # End of text         (ETX / TC3 / dec 3)
@@ -3164,6 +3164,7 @@ junonia_run () {
 
   # A directory containing markdown docs was found. Run with it.
   if [ -n "$JUNONIA_DOCDIR" ]; then
+    echodebug "docdir: $JUNONIA_DOCDIR"
     junonia_runmd_filtered "$filter_func" "$JUNONIA_DOCDIR" "$@"
     return $?
   fi
