@@ -2200,26 +2200,30 @@ _junonia_func_search () {
 
   while ! command -v $func_name >/dev/null 2>&1; do
     for ext in sh py; do
-      case $i in
-        0) p="$searchpath/$func_name";;
-        1) p="$searchpath/cmd/$func_name";;
-        2) p="$searchpath/cmds/$func_name";;
-        3) p="$searchpath/lib/$JUNONIA_NAME/$func_name";;
-        4) p="$searchpath/lib/$JUNONIA_NAME/cmd/$func_name";;
-        5) p="$searchpath/lib/$JUNONIA_NAME/cmds/$func_name";;
-        6) p="$searchpath/lib/$JUNONIA_NAME/command/$func_name";;
-        7) p="$searchpath/lib/$JUNONIA_NAME/commands/$func_name";;
-        *) return 1
-      esac
+      i=0
+      while [ $i -lt 8 ]; do
+        case $i in
+          0) p="$searchpath/$func_name.$ext";;
+          1) p="$searchpath/cmd/$func_name.$ext";;
+          2) p="$searchpath/cmds/$func_name.$ext";;
+          3) p="$searchpath/lib/$JUNONIA_NAME/$func_name.$ext";;
+          4) p="$searchpath/lib/$JUNONIA_NAME/cmd/$func_name.$ext";;
+          5) p="$searchpath/lib/$JUNONIA_NAME/cmds/$func_name.$ext";;
+          6) p="$searchpath/lib/$JUNONIA_NAME/command/$func_name.$ext";;
+          7) p="$searchpath/lib/$JUNONIA_NAME/commands/$func_name.$ext";;
+        esac
 
-      i=$(( $i + 1 ))
+        i=$(( $i + 1 ))
 
-      # Note that if the JUNONIA_INTERP_* variable is set manually it will be
-      # used unconditionally for the interpreter.
+        # Note that if the JUNONIA_INTERP_* variable is set manually it will be
+        # used unconditionally for the interpreter.
 
-      echodebug "searching for $p.$ext"
-      if [ -f "$p.$ext" ]; then
-        # Found the function file
+        echodebug "searching for $p"
+        if [ ! -f "$p" ]; then
+          continue
+        fi
+
+        echodebug "found $p"
         case "$ext" in
           sh)
             . "$p"
@@ -2227,7 +2231,8 @@ _junonia_func_search () {
             # Only stop the search if the sourced file actually contained the
             # function.
             if command -v $func_name >/dev/null 2>&1; then
-              JUNONIA_INTERP=${JUNONIA_INTERP_SH:=sh}
+              JUNONIA_INTERP=${JUNONIA_INTERP_SH:-sh}
+              echodebug "YO"
               return 0
             fi
             ;;
@@ -2235,7 +2240,7 @@ _junonia_func_search () {
             for py in python python3 pypy3 pypy; do
               if command -v $py >/dev/null 2>&1; then
                 JUNONIA_INTERP=${JUNONIA_INTERP_PY:-$py}
-                JUNONIA_FUNCPATH="$p.$ext"
+                JUNONIA_FUNCPATH="$p"
                 return 0
               fi
             done
@@ -2247,7 +2252,7 @@ _junonia_func_search () {
             return 1
             ;;
         esac
-      fi
+      done
     done
   done
 
@@ -2317,7 +2322,7 @@ junonia_init () {
     return
   fi
 
-  readonly JUNONIA_VERSION="1.2.5"
+  readonly JUNONIA_VERSION="1.5.0"
 
   # Communication control characters (TC1 - TC4)
   readonly JSOH="" # Start of heading    (SOH / TC1 / dec 1)
@@ -3579,6 +3584,7 @@ _junonia_exec () {
         ;;
       python|python3|pypy3|pypy)
         echodebug "executing python command"
+        echodebug "PYTHONPATH=\"$JUNONIA_PATH/lib/python\" \"$JUNONIA_INTERP\" \"$JUNONIA_FUNCPATH\" \"$@\""
         PYTHONPATH="$JUNONIA_PATH/lib/python" "$JUNONIA_INTERP" "$JUNONIA_FUNCPATH" "$@"
         ;;
       *)
