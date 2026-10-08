@@ -2441,7 +2441,7 @@ junonia_init () {
 
 # Use junonia_envvars to examine the current environment using env and extract
 # the names of variables of interest. Options are to list all variables (a),
-# readonly variables (r), or variables that are writable / can be set (2) as
+# readonly variables (r), or variables that are writable / can be set (w) as
 # the first argument. A prefix can also be supplied as the second argument,
 # which junonia itself sets to SCRIPT_ mostly typically.
 #
@@ -2841,6 +2841,7 @@ _junonia_set_args () {
 
       if(a[1] == "-JUNONIA_OUTPUT") {
         j_output = substr($0, index($0, "=") + 1, length($0))
+        echodebug("  j_output = " j_output)
         next
       }
 
