@@ -2232,7 +2232,6 @@ _junonia_func_search () {
             # function.
             if command -v $func_name >/dev/null 2>&1; then
               JUNONIA_INTERP=${JUNONIA_INTERP_SH:-sh}
-              echodebug "YO"
               return 0
             fi
             ;;
