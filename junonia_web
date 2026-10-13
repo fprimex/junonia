@@ -1,5 +1,13 @@
 #!/bin/sh
 
+###
+### License
+###
+
+# Junonia is public domain software licensed by the CC0
+# https://creativecommons.org/public-domain/cc0/
+# https://github.com/fprimex/junonia
+
 _junonia_web_cmds='  jpath
     JSON_TEXT=-
     -r, -root ROOT_SELECTOR=.
