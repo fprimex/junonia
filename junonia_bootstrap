@@ -1,20 +1,24 @@
 # This is a compact version of junonia_bootstrap for easy copying into user
 # scripts. For a fully commented, documented version of this script see
-# https://github.com/fprimex/junonia/blob/master/junonia.sh
+# https://github.com/fprimex/junonia/blob/main/junonia
+#
+# Note this uses readlink rather than `file -h`. Neither is POSIX, but readlink
+# is available everywhere junonia is likely to run, while `file` is not
+# installed by default on many systems (Alpine and Ubuntu container images, for
+# example) and its -h flag is not portable either.
 junonia_bootstrap () {
   JUNONIA_TARGET="$0"
   while [ -h "$JUNONIA_TARGET" ]; do
-    JUNONIA_PATH="$(file -h "$JUNONIA_TARGET" | \
-                    sed 's/^.*symbolic link to //')"
+    JUNONIA_PATH="$(readlink "$JUNONIA_TARGET")"
     if [ "$(echo "$JUNONIA_PATH" | cut -c -1)" = "/" ]; then
       JUNONIA_TARGET="$JUNONIA_PATH"
     else
-      JUNONIA_TARGET="$(dirname $JUNONIA_TARGET)"
+      JUNONIA_TARGET="$(dirname "$JUNONIA_TARGET")"
       JUNONIA_TARGET="$JUNONIA_TARGET/$JUNONIA_PATH"
     fi
   done
   JUNONIA_PATH="$(cd "$(dirname "$JUNONIA_TARGET")" && pwd -P)"
-  JUNONIA_TARGET="$JUNONIA_PATH/$(basename $JUNONIA_TARGET)"
+  JUNONIA_TARGET="$JUNONIA_PATH/$(basename "$JUNONIA_TARGET")"
   if [ "$(basename "$JUNONIA_PATH")" = bin ]; then
     JUNONIA_PATH="$(dirname "$JUNONIA_PATH")"
   fi
