@@ -382,6 +382,58 @@ prog_nest_deep () {
 }
 CMDEOF
 
+# JSON options build the body of a web request rather than the argument list.
+# They are the only kind of option whose documented default ends up somewhere
+# other than in the argument list, so they get their own command.
+cat > "$app/doc/prog_json.md" <<'MDEOF'
+## `prog json`
+
+Report the JSON body junonia builds from JSON options.
+
+### Synopsis
+
+    prog json [JSON_OPTIONS] [OPTIONS]
+
+### Description
+
+Prints the body on one line.
+
+### Options
+
+* `.enabled=true`
+
+A boolean defaulting to true.
+
+* `.disabled=false`
+
+A boolean defaulting to false.
+
+* `.bare`
+
+A boolean with no default.
+
+* `.name NAME`
+
+A JSON string with no default.
+
+* `.nick NICK`
+
+A JSON string with a default. [default: `nicko`]
+
+* `-plain P`
+
+An ordinary option, to show that JSON options take no argument slot. [default: `pp`]
+MDEOF
+
+cat > "$app/cmd/prog_json.sh" <<'CMDEOF'
+prog_json () {
+  echo "json=[$JW_JSON]"
+  echo "argc=$#"
+  echo "shared=[$1]"
+  echo "plain=[$2]"
+}
+CMDEOF
+
 cat > "$app/doc/prog.md" <<'MDEOF'
 ## `prog`
 
@@ -560,6 +612,12 @@ run_app PROG_opts_opt=from_env opts
 check 'environment supplies option' \
   "$(replace "$BASE" 'opt=[]' 'opt=[from_env]')" "$out"
 
+# A value of 0 is a value. It must not be taken for a variable that was never
+# set, which is what a plain reference to the environment does in awk.
+run_app PROG_opts_opt=0 opts
+check 'environment supplies numeric zero' \
+  "$(replace "$BASE" 'opt=[]' 'opt=[0]')" "$out"
+
 run_app PROG_shared=from_env opts
 check 'environment supplies shared option' \
   "$(replace "$BASE" 'shared=[shared_default]' 'shared=[from_env]')" "$out"
@@ -587,6 +645,11 @@ run_app opts -opt from_cli
 check 'command line beats config file' \
   "$(replace "$(replace "$BASE" 'opt=[]' 'opt=[from_cli]')" \
   'optdef=[optdef_default]' 'optdef=[file_def]')" "$out"
+
+printf 'PROG_opts_opt=0\n' > "$JUNONIA_CONFIG"
+run_app opts
+check 'config file numeric zero is used' \
+  "$(replace "$BASE" 'opt=[]' 'opt=[0]')" "$out"
 
 : > "$JUNONIA_CONFIG"
 
@@ -660,6 +723,79 @@ check_exits_quickly 'documented, no implementation' \
 
 check_exits_quickly 'implementation without function' \
   'command not found: prog_missing' missing
+
+###
+### JSON options
+###
+### A documented boolean default belongs in the body whether it is true or
+### false, so that the key exists for the API. A boolean with no default is
+### left out until it is given, because for a PATCH, absent means leave alone.
+
+printf '\n### JSON options\n'
+
+if command -v jq >/dev/null 2>&1; then
+  clear_prog_env
+  run_in "$app" ./prog json
+  check 'json: documented defaults, true and false' \
+    'json=[{"enabled":true,"disabled":false,"nick":"nicko"}]
+argc=2
+shared=[shared_default]
+plain=[pp]' "$out"
+
+  clear_prog_env
+  run_in "$app" ./prog json .bare
+  check_contains 'json: flag with no default is absent until given' "$out" \
+    '"bare":true'
+
+  clear_prog_env
+  run_in "$app" ./prog json .enabled false
+  check_contains 'json: cli false beats a default of true' "$out" \
+    '"enabled":false'
+
+  clear_prog_env
+  run_in "$app" ./prog json .disabled true
+  check_contains 'json: cli true beats a default of false' "$out" \
+    '"disabled":true'
+
+  clear_prog_env
+  run_in "$app" ./prog json .name bob
+  check_contains 'json: string value' "$out" '"name":"bob"'
+
+  # An environment variable feeds the same machinery as the command line, and
+  # is spelled the same way as everywhere else.
+  # The same numeric and word spellings of true and false work on the command
+  # line, and anything else is an error rather than a JSON string in the body.
+  run_app json .enabled 0
+  check_contains 'json: cli zero is false' "$out" '"enabled":false'
+
+  run_app json .disabled 1
+  check_contains 'json: cli one is true' "$out" '"disabled":true'
+
+  run_app json .enabled maybe
+  check_contains 'json: cli value must be a boolean' "$out" \
+    'option .enabled argument must be omitted (true)'
+  check 'json: cli value must be a boolean, status' '1' "$rc"
+
+  clear_prog_env
+  run_in "$app" env PROG_json_enabled=false ./prog json
+  check_contains 'json: environment variable' "$out" '"enabled":false'
+
+  clear_prog_env
+  printf 'PROG_json_disabled=true\n' > "$JUNONIA_CONFIG"
+  run_in "$app" ./prog json
+  check_contains 'json: configuration file' "$out" '"disabled":true'
+
+  : > "$JUNONIA_CONFIG"
+
+  clear_prog_env
+  run_in "$app" ./prog json .bare .name bob
+  check 'json: takes no argument slot' \
+    'argc=2
+shared=[shared_default]
+plain=[pp]' "$(printf '%s\n' "$out" | tail -n +2)"
+else
+  printf '# jq is not installed, skipped JSON option tests\n'
+fi
 
 ###
 ### Part three: argument resolution, spec string driven

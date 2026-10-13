@@ -1072,9 +1072,21 @@ _junonia_md2spec () {
     options && /^\* `\.[-A-Za-z0-9]+/ {
       # Remove the leading bullet-space-backtick and the last backtick
       gsub(/^\* `|`$/, "")
+
+      # Track the option name and whether it takes a value the same way the
+      # option rule above does. The default rule below depends on both: with
+      # stale values it applies the kind of the previous option to the default
+      # of this one, so a string default is validated as a boolean and
+      # reported against an empty option name.
+      split($1, jn, "=")
+      opt = jn[1]
       opts[++n_opts] = $1
+
       if($2 ~ /[-_A-Z0-9]+/) {
         opts[n_opts] = opts[n_opts] " " $2
+        n_metas = 1
+      } else {
+        n_metas = 0
       }
     }
 
@@ -2807,6 +2819,18 @@ _junonia_set_args () {
             # This is a JSON argument
             delete_val = make_jqprog(ARGV[i], ARGV[i+1])
 
+            # Remember the value that was given, so that the documented
+            # default is not applied on top of it later, and so that a boolean
+            # can be validated below where the spec says it is one. It is not
+            # stored in opts[] because JSON options build the request body
+            # rather than the argument list.
+            if(delete_val) {
+              json_given[ARGV[i]] = ARGV[i+1]
+            } else {
+              # A flag given with no value, which was emitted as true.
+              json_given[ARGV[i]] = "true"
+            }
+
             # Always delete the argument name. Optionally delete the next item,
             # depending on if it was the next option (name was a flag) or an
             # argument value.
@@ -3039,9 +3063,12 @@ _junonia_set_args () {
           # false boolean may be written as false, as 0, or as nothing at all,
           # so it is the absence of a meta variable, not the presence of a
           # default, that identifies a boolean.
-          if($2 == "") {
+          is_bool = ($2 == "")
+          has_default = 0
+          if(is_bool) {
             n = index($0, "=")
             if(n) {
+              has_default = 1
               deftxt = substr($0, n + 1)
               # An empty default means false. mapbool must not be handed the
               # empty string here, because there the empty string means a flag
@@ -3052,49 +3079,81 @@ _junonia_set_args () {
                 optval = mapbool(deftxt, opt)
               }
             }
-            if(is_json && n) {
-              if(optval) {
-                optval = opt "= true"
-              } else {
-                optval = opt "= false"
-              }
-            }
           } else {
             if($2 !~ /\[[A-Za-z0-9]/) {
               n = index($0, "=")
               if(n) {
+                has_default = 1
                 optval = substr($0, n + 1)
               }
             }
           }
 
-          if(ENVIRON[envopt]) {
-            if($2) {
-              optval = ENVIRON[envopt]
-            } else {
+          # Environment variables override the default, and booleans are
+          # spelled the same way there as anywhere else. The test for
+          # membership has to be explicit: a plain reference to ENVIRON is
+          # false for the value 0, which would silently discard the value 0 in
+          # favor of the default. An empty value still counts as unset, so
+          # that an accidentally exported empty variable does not wipe out a
+          # documented default.
+          env_set = 0
+          if((envopt in ENVIRON) && ENVIRON[envopt] != "") {
+            env_set = 1
+            if(is_bool) {
               optval = mapbool(ENVIRON[envopt], opt)
-              if(is_json) {
-                if(optval) {
-                  optval = opt " = true"
-                } else {
-                  optval = opt " = false"
-                }
-              }
+            } else {
+              optval = ENVIRON[envopt]
             }
           }
 
           if(is_json) {
-            if(optval) {
-              make_jqprog(opt, optval)
+            # JSON options become fields of a request body rather than shell
+            # arguments, so they never take an argument slot, and this rule is
+            # finished with them either way.
+            if(opt in json_given) {
+              if(is_bool) {
+                # The statement for this option was emitted while the command
+                # line was being read, before it was known that the option is a
+                # boolean, so the value went in unvalidated and, say, maybe
+                # became the JSON string "maybe". Validate it now and put right
+                # what was emitted.
+                boolval = mapbool(json_given[opt], opt)
+                if(boolval) {
+                  boolval = "true"
+                } else {
+                  boolval = "false"
+                }
+                # The pattern needs the dots of the option name escaped, but
+                # the replacement must keep them as they are.
+                pat = opt
+                gsub(/\./, "\\.", pat)
+                gsub(pat " = [^|]*\\|", opt " = " boolval " |", jqprog)
+              }
             } else {
-              next
+              if(is_bool) {
+                # A boolean whose default is documented appears in the JSON
+                # whatever that default is, false included, so that the key
+                # exists in the body. One with no default, and nothing given,
+                # is left out entirely: the caller never said anything about
+                # it, and for a PATCH, absent means leave alone.
+                if(has_default || env_set) {
+                  if(optval) {
+                    make_jqprog(opt, "true")
+                  } else {
+                    make_jqprog(opt, "false")
+                  }
+                }
+              } else if(optval) {
+                make_jqprog(opt, optval)
+              }
             }
+            next
+          }
+
+          if(junonia_web && opt != "-json") {
+            args = args substr(opt, 2) "=" optval
           } else {
-            if(junonia_web && opt != "-json") {
-              args = args substr(opt, 2) "=" optval
-            } else {
-              args = args optval
-            }
+            args = args optval
           }
         }
       }

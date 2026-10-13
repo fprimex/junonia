@@ -262,6 +262,32 @@ This format specifies that `-multi-option` can be given more than once on the co
 
 * Documenting subcommands in Markdown is encouraged, but not required for functionality. During command execution, subcommands are discovered dynamically both for command execution and for online documentation.
 
+## JSON options
+
+An option whose name begins with a period is a field of a JSON body rather than an argument. Junonia collects these into a JSON document, which is what gets sent as the payload of a `POST`, `PUT`, or `PATCH` request by the web layer in `junonia_web`, where a command documents its endpoint with a `### REST endpoint` section. Whatever is built is also available to the command function as `JW_JSON`.
+
+```
+* `.name NAME`
+
+A JSON string.
+
+* `.enabled=true`
+
+A JSON boolean defaulting to true.
+
+* `.disabled=0`
+
+A JSON boolean defaulting to false.
+```
+
+The rules for these are the same as for other options, with two differences that matter.
+
+A boolean with a documented default appears in the JSON whatever that default is, false included, so that the key exists in the body. A boolean with no documented default is left out until it is given, because in a `PATCH` payload an absent field means leave alone, and junonia should not invent an opinion the caller never expressed. So document a default of false for a field the API must be told is false, and document no default for a field that should go unsent unless the user asks.
+
+JSON options are not passed to the command function and take up no argument slot, so the positions of the arguments a function receives are unaffected by how many JSON options are documented or given.
+
+Values may come from the command line (`.name bob`, `.enabled false`), from a configuration file entry, or from the environment variable, in the same precedence order as any other option, and a value given on the command line beats a documented default of either sign.
+
 ## Function notes and features
 
 * Functions implementations are searched for by the format `command_subcommand` for the invocation 'command subcommand'.
