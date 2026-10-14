@@ -50,7 +50,7 @@ JSON formatted text to print as a tree. If \`-\` is given input will be read fro
 
 ### Options
 
-* -r, -root \`ROOT_SELECTOR\`
+* \`-r, -root ROOT_SELECTOR\`
 
 Provide a \`jq\` style selector that should be an array of objects. [default: \`.\`]
 
@@ -79,7 +79,7 @@ JSON formatted text to print as a tree. If \`-\` is given input will be read fro
 
 ### Options
 
-* -r, -root \`ROOT_SELECTOR\`
+* \`-r, -root ROOT_SELECTOR\`
 
 Provide a \`jq\` style selector that should be an array of objects. [default: \`.\`]
 
@@ -108,11 +108,11 @@ JSON formatted text to print as a table. If \`-\` is given input will be read fr
 
 ### Options
 
-* -r, -root \`ROOT_SELECTOR\`
+* \`-r, -root ROOT_SELECTOR\`
 
 Provide a \`jq\` style selector that should be an array of objects. [default: \`.\`]
 
-* -t, -transpose
+* \`-t, -transpose\`
 
 If the table should be transposed. [default: \`true\`]
 
