@@ -2926,16 +2926,29 @@ _junonia_set_args () {
       echodebug("")
       echodebug("processing spec option: " $0)
 
-      split($1, a, "=")
-      aliases = a[1]
-      n_aliases = split(aliases, aliasa, ",")
+      # All of the names of an option, aliases included, are written as one
+      # comma separated field, so the meta variable, if there is one, is the
+      # field after the last name rather than always being $2. That is how
+      # md2spec generates them, with no space after the comma. A spec written
+      # by hand spells the names the way the documentation does, with a space,
+      # and then awk gives each name its own field - which leaves the alias
+      # unreachable, since only the first field is ever compared against the
+      # command line, and makes the second name of an aliased flag look like
+      # the value it takes. Join the names back up, consuming fields for as
+      # long as the names so far end in a comma.
+      n_names = 1
+      while(n_names < NF && $n_names ~ /,$/) {
+        n_names++
+      }
 
-      # All of the names of an option, aliases included, are a single, comma
-      # separated spec field, so the meta variable, if there is one, is always
-      # the field after them. Counting one field per alias would put the meta
-      # variable out of reach for any option with an alias, making every aliased
-      # option look like a boolean.
-      metavar_pos = 2
+      aliases = ""
+      for(i = 1; i <= n_names; i++) {
+        aliases = aliases $i
+      }
+
+      split(aliases, a, "=")
+      n_aliases = split(a[1], aliasa, ",")
+      metavar_pos = n_names + 1
 
       opt = ""
       # Go through all aliases and see if this is an option in the command line.
@@ -3063,7 +3076,7 @@ _junonia_set_args () {
           # false boolean may be written as false, as 0, or as nothing at all,
           # so it is the absence of a meta variable, not the presence of a
           # default, that identifies a boolean.
-          is_bool = ($2 == "")
+          is_bool = ($metavar_pos == "")
           has_default = 0
           if(is_bool) {
             n = index($0, "=")
@@ -3080,7 +3093,7 @@ _junonia_set_args () {
               }
             }
           } else {
-            if($2 !~ /\[[A-Za-z0-9]/) {
+            if($metavar_pos !~ /\[[A-Za-z0-9]/) {
               n = index($0, "=")
               if(n) {
                 has_default = 1

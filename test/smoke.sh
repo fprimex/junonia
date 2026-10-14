@@ -823,6 +823,8 @@ prog_opts () {
   echo "flag_false=[$6]"
   echo "flag_true=[$7]"
   echo "flag_zero=[$8]"
+  echo "xray=[${9}]"
+  echo "yflag=[${10}]"
 }
 
 spec='# A program configured by a spec string.
@@ -839,6 +841,8 @@ prog
     -flag-false=false
     -flag-true=true
     -flag-zero=0
+    -x, -xray XRAY=xray_default
+    -y, -yflag
 '
 
 junonia_bootstrap () {
@@ -863,7 +867,9 @@ flag=[]
 flag_one=[1]
 flag_false=[]
 flag_true=[1]
-flag_zero=[]'
+flag_zero=[]
+xray=[xray_default]
+yflag=[]'
 
 run_sprog opts
 check 'spec: all defaults' "$SBASE" "$out"
@@ -873,6 +879,29 @@ check 'spec: option value' "$(replace "$SBASE" 'opt=[]' 'opt=[given]')" "$out"
 
 run_sprog opts -flag
 check 'spec: flag given' "$(replace "$SBASE" 'flag=[]' 'flag=[1]')" "$out"
+
+# A spec written by hand separates aliases with a comma and a space, the way
+# the documentation does, which makes awk give each name its own field. The
+# alias has to be reachable, and the second name of an aliased flag must not be
+# mistaken for the value the flag takes.
+run_sprog opts -x byfirst
+check 'spec: aliased option by its first name' \
+  "$(replace "$SBASE" 'xray=[xray_default]' 'xray=[byfirst]')" "$out"
+
+run_sprog opts -xray byalias
+check 'spec: aliased option by its alias' \
+  "$(replace "$SBASE" 'xray=[xray_default]' 'xray=[byalias]')" "$out"
+
+run_sprog opts -y
+check 'spec: aliased flag is a flag' \
+  "$(replace "$SBASE" 'yflag=[]' 'yflag=[1]')" "$out"
+
+run_sprog opts -yflag
+check 'spec: aliased flag by its alias' \
+  "$(replace "$SBASE" 'yflag=[]' 'yflag=[1]')" "$out"
+
+run_sprog opts -y false
+check 'spec: aliased flag given false' "$SBASE" "$out"
 
 run_sprog opts -flag-false
 check 'spec: false default, flag given' \

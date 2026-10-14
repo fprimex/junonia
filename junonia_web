@@ -114,7 +114,7 @@ Provide a \`jq\` style selector that should be an array of objects. [default: \`
 
 * \`-t, -transpose\`
 
-If the table should be transposed. [default: \`true\`]
+If the table should be transposed. [default: \`false\`]
 
 ### JSON options
 
