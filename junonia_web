@@ -216,14 +216,6 @@ $_junonia_web_cmds"
   junonia_auth_config
 
   readonly JW_DEFAULT_CURLRC="$JUNONIA_CONFIGDIR/curlrc"
-
-  # Not readonly, unlike the default above. A program picks its own curlrc
-  # after initialization, from its own configuration - tfh, pd and zdesk each
-  # assign this in their filter function - which is also why a value that is
-  # already set is honored above. Marking it readonly makes that assignment
-  # fatal: all three die with "JW_CURLRC: readonly variable" when they choose
-  # the curlrc form of authentication. This was fixed once before, in 07280cc,
-  # and put back by 0c7da5e two and a half hours later.
   JW_CURLRC="${JW_CURLRC:-"$JW_DEFAULT_CURLRC"}"
   # Indicate that init has happened
   readonly JW_INIT=1
@@ -916,9 +908,9 @@ junonia_request () {
   fi
 
   case "$JW_AUTH_SRC" in
-    curl)
+    curlrc)
       _autharg="$JW_AUTH"
-      _autharg_debug='$JW_AUTH_REDACTED (curl)'
+      _autharg_debug='$JW_AUTH_REDACTED (curlrc)'
       ;;
     oauth)
       _autharg="--oauth2-bearer $JW_OAUTH"

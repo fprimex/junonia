@@ -804,19 +804,25 @@ fi
 ### function, so junonia_web must not mark JW_CURLRC readonly. It was fixed in
 ### 07280cc and put back by 0c7da5e, which is why this is checked.
 
-printf '\n### web layer variable ownership\n'
+printf '\n### web layer\n'
 
 if command -v jq >/dev/null 2>&1 && command -v curl >/dev/null 2>&1; then
   wapp="$sandbox/wprog"
-  mkdir -p "$wapp/doc"
-  # junonia looks for junonia_web beside the program, so this loads the web
-  # layer and its commands into the test program.
+  mkdir -p "$wapp/doc" "$sandbox/stub"
+
+  # junonia looks for junonia_web beside the program.
   cp "$root/junonia_web" "$wapp/junonia_web"
+
+  # A curl that records its arguments rather than making a request.
+  printf '#!/bin/sh\nprintf "%%s\\n" "$*" >> "$WPROG_STUB"\n' \
+    > "$sandbox/stub/curl"
+  chmod +x "$sandbox/stub/curl"
+  printf 'header = "X-Token: stub"\n' > "$sandbox/curlrc"
 
   cat > "$wapp/doc/wprog.md" <<'MDEOF'
 ## `wprog`
 
-Report whether the web layer left its variables writable.
+Report how the web layer initialized and what curl was given.
 
 ### Synopsis
 
@@ -833,13 +839,16 @@ wprog () {
     echo 'default_curlrc=unset'
   fi
 
-  # In a subshell, because assigning a readonly variable ends a
-  # non-interactive shell rather than merely failing the command.
+  # In a subshell: assigning a readonly variable ends a non-interactive shell.
   if ( JW_CURLRC="$JW_DEFAULT_CURLRC/program" ) 2>/dev/null; then
     echo 'assign=ok'
   else
     echo 'assign=refused'
   fi
+
+  rm -f "$WPROG_STUB"
+  junonia_request http://junonia.invalid/ >/dev/null 2>&1
+  [ -f "$WPROG_STUB" ] && sed 's/^/curl saw: /' "$WPROG_STUB"
 }
 junonia_bootstrap () {
   JUNONIA_TARGET="$0"
@@ -853,12 +862,15 @@ WEOF
   chmod +x "$wapp/wprog"
 
   clear_prog_env
-  run_in "$wapp" ./wprog
-  check 'web: program may set JW_CURLRC after initialization' \
-    'init=1
-default_curlrc=set
-assign=ok' \
-    "$out"
+  run_in "$wapp" env PATH="$sandbox/stub:$PATH" \
+    WPROG_STUB="$sandbox/stub/args" JW_CURLRC="$sandbox/curlrc" ./wprog
+
+  check_contains 'web: web layer initialized' "$out" 'init=1'
+  check_contains 'web: web layer default curlrc' "$out" 'default_curlrc=set'
+  check_contains 'web: program may set JW_CURLRC after initialization' \
+    "$out" 'assign=ok'
+  check_contains 'web: the curlrc reaches curl' "$out" \
+    "curl saw: -s -w \\nhttp_code: %{http_code}\\n --config $sandbox/curlrc"
 else
   printf '# jq or curl not installed, skipped web layer checks\n'
 fi
