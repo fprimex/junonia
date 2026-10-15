@@ -798,6 +798,72 @@ else
 fi
 
 ###
+### web layer variable ownership
+###
+### A program chooses its own curlrc after initialization, in its filter
+### function, so junonia_web must not mark JW_CURLRC readonly. It was fixed in
+### 07280cc and put back by 0c7da5e, which is why this is checked.
+
+printf '\n### web layer variable ownership\n'
+
+if command -v jq >/dev/null 2>&1 && command -v curl >/dev/null 2>&1; then
+  wapp="$sandbox/wprog"
+  mkdir -p "$wapp/doc"
+  # junonia looks for junonia_web beside the program, so this loads the web
+  # layer and its commands into the test program.
+  cp "$root/junonia_web" "$wapp/junonia_web"
+
+  cat > "$wapp/doc/wprog.md" <<'MDEOF'
+## `wprog`
+
+Report whether the web layer left its variables writable.
+
+### Synopsis
+
+    wprog [SUBCOMMAND]
+MDEOF
+
+  cat > "$wapp/wprog" <<'WEOF'
+#!/bin/sh
+wprog () {
+  echo "init=${JW_INIT:-unset}"
+  if [ -n "$JW_DEFAULT_CURLRC" ]; then
+    echo 'default_curlrc=set'
+  else
+    echo 'default_curlrc=unset'
+  fi
+
+  # In a subshell, because assigning a readonly variable ends a
+  # non-interactive shell rather than merely failing the command.
+  if ( JW_CURLRC="$JW_DEFAULT_CURLRC/program" ) 2>/dev/null; then
+    echo 'assign=ok'
+  else
+    echo 'assign=refused'
+  fi
+}
+junonia_bootstrap () {
+  JUNONIA_TARGET="$0"
+  JUNONIA_PATH="$(cd "$(dirname "$JUNONIA_TARGET")" && pwd -P)"
+  JUNONIA_TARGET="$JUNONIA_PATH/$(basename "$JUNONIA_TARGET")"
+}
+junonia_bootstrap
+. "$JUNONIA_ROOT/junonia"
+junonia_run "$@"
+WEOF
+  chmod +x "$wapp/wprog"
+
+  clear_prog_env
+  run_in "$wapp" ./wprog
+  check 'web: program may set JW_CURLRC after initialization' \
+    'init=1
+default_curlrc=set
+assign=ok' \
+    "$out"
+else
+  printf '# jq or curl not installed, skipped web layer checks\n'
+fi
+
+###
 ### Part three: argument resolution, spec string driven
 ###
 ### Same matrix, different path through junonia. The comments in the spec are
