@@ -1012,10 +1012,7 @@ junonia_request () {
 
 # Copy of junonia_bootstrap for executing this script directly.
 #
-# Uses readlink rather than `file -h`, as the copy in junonia does: readlink is
-# present wherever junonia is likely to run, while `file` is not installed by
-# default on some systems (Alpine and Ubuntu container images, for example) and
-# its -h flag is not portable either.
+# readlink, not `file -h`, as the copy in junonia does.
 junonia_web_bootstrap () {
   JUNONIA_TARGET="$0"
   while [ -h "$JUNONIA_TARGET" ]; do

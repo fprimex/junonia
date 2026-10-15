@@ -2,10 +2,7 @@
 # scripts. For a fully commented, documented version of this script see
 # https://github.com/fprimex/junonia/blob/main/junonia
 #
-# Note this uses readlink rather than `file -h`. Neither is POSIX, but readlink
-# is available everywhere junonia is likely to run, while `file` is not
-# installed by default on many systems (Alpine and Ubuntu container images, for
-# example) and its -h flag is not portable either.
+# readlink, not `file -h`: the latter is neither portable nor always installed.
 junonia_bootstrap () {
   JUNONIA_TARGET="$0"
   while [ -h "$JUNONIA_TARGET" ]; do

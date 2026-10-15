@@ -246,10 +246,8 @@ prog_opts () {
 }
 CMDEOF
 
-# prog_ghost is documented but has no implementation file at all, and
-# prog_missing has an implementation file that does not define the function.
-# Both must report and exit rather than spin looking for a function that never
-# turns up.
+# prog_ghost has no implementation file, prog_missing has one that defines
+# nothing. Both must report and exit.
 cat > "$app/doc/prog_ghost.md" <<'MDEOF'
 ## `prog ghost`
 
@@ -274,11 +272,9 @@ cat > "$app/cmd/prog_missing.sh" <<'CMDEOF'
 # Intentionally empty; prog_missing must not be defined here.
 CMDEOF
 
-# Two levels of subcommands, for exercising nested help and nested execution.
-# Note that neither of these has a positional parameter: an option value and a
-# subcommand name are indistinguishable to junonia when a command has both a
-# positional parameter and subcommands, because positional parameters are
-# resolved before subcommands.
+# Two levels of subcommands, for nested help and nested execution. Neither has
+# a positional parameter: with both, an option value and a subcommand name are
+# indistinguishable, positional parameters being resolved first.
 cat > "$app/doc/prog_nest.md" <<'MDEOF'
 ## `prog nest`
 
@@ -382,9 +378,8 @@ prog_nest_deep () {
 }
 CMDEOF
 
-# JSON options build the body of a web request rather than the argument list.
-# They are the only kind of option whose documented default ends up somewhere
-# other than in the argument list, so they get their own command.
+# JSON options build a request body rather than the argument list, so their
+# documented defaults go somewhere else entirely.
 cat > "$app/doc/prog_json.md" <<'MDEOF'
 ## `prog json`
 
@@ -612,8 +607,7 @@ run_app PROG_opts_opt=from_env opts
 check 'environment supplies option' \
   "$(replace "$BASE" 'opt=[]' 'opt=[from_env]')" "$out"
 
-# A value of 0 is a value. It must not be taken for a variable that was never
-# set, which is what a plain reference to the environment does in awk.
+# A value of 0 is a value, not an unset variable.
 run_app PROG_opts_opt=0 opts
 check 'environment supplies numeric zero' \
   "$(replace "$BASE" 'opt=[]' 'opt=[0]')" "$out"
@@ -693,10 +687,8 @@ check_contains 'positional parameters must precede options' "$out" \
 run_app nosuchsub
 check_contains 'undocumented subcommand' "$out" 'unknown parameter: nosuchsub'
 
-# A documented subcommand with no implementation must report the problem and
-# exit. Before the function search loop was fixed this spun forever at 100% CPU
-# looking for a file that would never appear, so every one of these checks runs
-# under a watchdog.
+# A documented subcommand with no implementation must report and exit. These
+# run under a watchdog, because the failure mode is spinning, not reporting.
 check_exits_quickly() {
   desc="$1"
   expect_msg="$2"
@@ -761,10 +753,8 @@ plain=[pp]' "$out"
   run_in "$app" ./prog json .name bob
   check_contains 'json: string value' "$out" '"name":"bob"'
 
-  # An environment variable feeds the same machinery as the command line, and
-  # is spelled the same way as everywhere else.
-  # The same numeric and word spellings of true and false work on the command
-  # line, and anything else is an error rather than a JSON string in the body.
+  # The same spellings of true and false as everywhere else; anything else is
+  # an error rather than a JSON string in the body.
   run_app json .enabled 0
   check_contains 'json: cli zero is false' "$out" '"enabled":false'
 
@@ -798,11 +788,10 @@ else
 fi
 
 ###
-### web layer variable ownership
+### Web layer
 ###
-### A program chooses its own curlrc after initialization, in its filter
-### function, so junonia_web must not mark JW_CURLRC readonly. It was fixed in
-### 07280cc and put back by 0c7da5e, which is why this is checked.
+### A program picks its own curlrc after initialization, so JW_CURLRC stays
+### writable, and that curlrc has to reach curl.
 
 printf '\n### web layer\n'
 
@@ -958,10 +947,9 @@ check 'spec: option value' "$(replace "$SBASE" 'opt=[]' 'opt=[given]')" "$out"
 run_sprog opts -flag
 check 'spec: flag given' "$(replace "$SBASE" 'flag=[]' 'flag=[1]')" "$out"
 
-# A spec written by hand separates aliases with a comma and a space, the way
-# the documentation does, which makes awk give each name its own field. The
-# alias has to be reachable, and the second name of an aliased flag must not be
-# mistaken for the value the flag takes.
+# A hand written spec separates aliases with a comma and a space, which gives
+# each name its own field: the alias must still be reachable, and the second
+# name of an aliased flag must not be read as the value it takes.
 run_sprog opts -x byfirst
 check 'spec: aliased option by its first name' \
   "$(replace "$SBASE" 'xray=[xray_default]' 'xray=[byfirst]')" "$out"
@@ -1059,8 +1047,7 @@ check 'nested subcommand runs' \
   'shared=[shared_default] nest_opt=[nest_default] deep_opt=[v]' "$out"
 
 # Options of every command on the path may be given after the full subcommand
-# path; junonia requires all positional parameters before any option, so an
-# option cannot be sandwiched between subcommands.
+# path, which is required: positional parameters all precede options.
 run_app nest deep -nest-opt n -deep-opt v
 check 'nested subcommand runs with parent option' \
   'shared=[shared_default] nest_opt=[n] deep_opt=[v]' "$out"

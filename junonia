@@ -831,12 +831,9 @@ _junonia_md2spec () {
       return r
     }
 
-    # Normalize a documented boolean default for the spec, as either 1 or 0.
-    # mapbool cannot be used for this directly: it maps the empty string to
-    # true, because that is what a flag given with no value on the command line
-    # means, while an empty default has to mean false. Writing false as 0 also
-    # keeps a boolean that defaults to false distinguishable from a boolean
-    # that has no default at all.
+    # A documented boolean default in the spec is 1 or 0. mapbool cannot be
+    # used directly: it maps the empty string to true, and an empty default is
+    # false.
     function boolspec(b, opt) {
       return mapbool(b, opt) == "1" ? "1" : "0"
     }
@@ -1037,11 +1034,8 @@ _junonia_md2spec () {
 
       opt = substr(opt, 1, length(opt) - 1)
 
-      # A default given as part of the option name (e.g. `-flag=1`) marks a
-      # flag, not an option taking a meta variable, so peel it off of what is
-      # left before the remainder is mistaken for a meta variable. Without this
-      # the spec entry becomes `-flag =1`, with the default parsed as the meta
-      # variable, and the option stops being a boolean.
+      # A default written as part of the name, as in `-flag=1`, marks a
+      # boolean, so peel it off before the rest is read as a meta variable.
       inline_def = ""
       has_inline_def = 0
       if(substr($0, 1, 1) == "=") {
@@ -1073,11 +1067,8 @@ _junonia_md2spec () {
       # Remove the leading bullet-space-backtick and the last backtick
       gsub(/^\* `|`$/, "")
 
-      # Track the option name and whether it takes a value the same way the
-      # option rule above does. The default rule below depends on both: with
-      # stale values it applies the kind of the previous option to the default
-      # of this one, so a string default is validated as a boolean and
-      # reported against an empty option name.
+      # The default rule below depends on opt and n_metas, so set them the way
+      # the option rule above does.
       split($1, jn, "=")
       opt = jn[1]
       opts[++n_opts] = $1
@@ -1227,10 +1218,8 @@ _junonia_md2help () {
       n_cmd_parts = split(cmd, cmda)
       echodebug("n_cmd_parts: " n_cmd_parts)
 
-      # The level of the command path currently being located in the
-      # documentation. It advances as each part of the command is matched
-      # against a documentation title, and help begins once every part has been
-      # matched.
+      # How far into the command path the documentation search has got; help
+      # begins once every part has matched a title.
       subcmd_level = 1
 
       # Subcommands of the command being documented, which are summarized at
@@ -1332,10 +1321,8 @@ _junonia_md2help () {
 
     # At this point subcmd_level > 1
 
-    # A title holding every part of the command. Note that this has to match a
-    # title of exactly the same depth as the command, so that a command three
-    # levels deep is not mistaken for having been located when only its first
-    # two levels matched.
+    # A title holding the whole command. The depth has to match exactly, or a
+    # deeper command is treated as found when only its leading parts matched.
     title && subcmd_level <= n_cmd_parts && n_cmd_parts == hn && cmda[subcmd_level] == subcmds[subcmd_level] {
       # Every part of the command has to match up
       for(j=1; j<=n_cmd_parts; j++) {
@@ -1380,10 +1367,8 @@ _junonia_md2help () {
       next
     }
 
-    # In the command description, so add it to the name line. Note that this
-    # must not run before the whole command has been located, or the first line
-    # of whatever documentation follows an unrelated title is appended to the
-    # name line.
+    # First line of the description, appended to the name line. Only after the
+    # whole command is located, or text of an unrelated title lands here.
     title && cmd_doc_start && ! cmd_doc_end && ! /^$/ {
       txt = substr(txt, 1, length(txt) - 1) " -- " $0 "\n"
       added_txt = 1
@@ -2233,10 +2218,8 @@ _junonia_plugin_docs () {
 
 # Try to find and source a given function name
 _junonia_load_func () {
-  # The function may already be defined, which is the case when all of the
-  # commands are implemented in the top level program script. No file search is
-  # needed then, and no interpreter was selected by a file search, so default to
-  # running it in this shell.
+  # Already defined, as when every command is in the top level script: no file
+  # search has run, so no interpreter was picked and this shell runs it.
   if command -v "$1" >/dev/null 2>&1; then
     JUNONIA_INTERP=${JUNONIA_INTERP:-sh}
     return 0
@@ -2257,13 +2240,10 @@ _junonia_load_func () {
   return 1
 }
 
-# Make a single pass over all of the conventional function file locations,
-# looking for a file that implements the given function. Returns 0 if the
-# function was found and loaded (or otherwise became available), 1 otherwise.
-#
-# Note that this must not loop until the function appears; a spec entry with no
-# implementation anywhere is an error, not a condition that will ever resolve,
-# and looping here hangs the program forever.
+# One pass over the conventional function file locations for the given
+# function, returning 0 if it was loaded. This must not wait for the function to
+# appear: a documented command with no implementation is an error, and looping
+# hangs the program.
 _junonia_func_search () {
   echodebug "begin func search"
 
@@ -2819,11 +2799,10 @@ _junonia_set_args () {
             # This is a JSON argument
             delete_val = make_jqprog(ARGV[i], ARGV[i+1])
 
-            # Remember the value that was given, so that the documented
-            # default is not applied on top of it later, and so that a boolean
-            # can be validated below where the spec says it is one. It is not
-            # stored in opts[] because JSON options build the request body
-            # rather than the argument list.
+            # Remembered rather than put in opts[], because a JSON option
+            # builds the request body, not the argument list. The default must
+            # not be applied on top of it later, and a boolean is validated
+            # below, where the spec says it is one.
             if(delete_val) {
               json_given[ARGV[i]] = ARGV[i+1]
             } else {
@@ -2926,16 +2905,10 @@ _junonia_set_args () {
       echodebug("")
       echodebug("processing spec option: " $0)
 
-      # All of the names of an option, aliases included, are written as one
-      # comma separated field, so the meta variable, if there is one, is the
-      # field after the last name rather than always being $2. That is how
-      # md2spec generates them, with no space after the comma. A spec written
-      # by hand spells the names the way the documentation does, with a space,
-      # and then awk gives each name its own field - which leaves the alias
-      # unreachable, since only the first field is ever compared against the
-      # command line, and makes the second name of an aliased flag look like
-      # the value it takes. Join the names back up, consuming fields for as
-      # long as the names so far end in a comma.
+      # The names of an option, aliases included, are one comma separated
+      # field, so the meta variable follows the last name rather than being $2.
+      # A hand written spec puts a space after the comma and awk splits it, so
+      # join the names back up while they end in a comma.
       n_names = 1
       while(n_names < NF && $n_names ~ /,$/) {
         n_names++
@@ -3072,10 +3045,8 @@ _junonia_set_args () {
           gsub(/[-_\.]/, "_", envopt)
           sub(/^_/, "", envopt)
 
-          # A spec entry with no meta variable is a boolean. The default of a
-          # false boolean may be written as false, as 0, or as nothing at all,
-          # so it is the absence of a meta variable, not the presence of a
-          # default, that identifies a boolean.
+          # A spec entry with no meta variable is a boolean; a false default
+          # may be written false, 0, or not at all.
           is_bool = ($metavar_pos == "")
           has_default = 0
           if(is_bool) {
@@ -3083,9 +3054,8 @@ _junonia_set_args () {
             if(n) {
               has_default = 1
               deftxt = substr($0, n + 1)
-              # An empty default means false. mapbool must not be handed the
-              # empty string here, because there the empty string means a flag
-              # was given with no value, which is true.
+              # An empty default is false, where mapbool reads an empty string
+              # as a flag given with no value, which is true.
               if(deftxt == "") {
                 optval = ""
               } else {
@@ -3102,13 +3072,10 @@ _junonia_set_args () {
             }
           }
 
-          # Environment variables override the default, and booleans are
-          # spelled the same way there as anywhere else. The test for
-          # membership has to be explicit: a plain reference to ENVIRON is
-          # false for the value 0, which would silently discard the value 0 in
-          # favor of the default. An empty value still counts as unset, so
-          # that an accidentally exported empty variable does not wipe out a
-          # documented default.
+          # Environment variables override the default. Membership has to be
+          # tested explicitly: a plain reference to ENVIRON is false for the
+          # value 0, which would silently discard it. An empty value still
+          # counts as unset.
           env_set = 0
           if((envopt in ENVIRON) && ENVIRON[envopt] != "") {
             env_set = 1
@@ -3120,16 +3087,13 @@ _junonia_set_args () {
           }
 
           if(is_json) {
-            # JSON options become fields of a request body rather than shell
-            # arguments, so they never take an argument slot, and this rule is
-            # finished with them either way.
+            # A JSON option is a field of the request body, not an argument,
+            # so it takes no argument slot and this rule is done with it.
             if(opt in json_given) {
               if(is_bool) {
-                # The statement for this option was emitted while the command
-                # line was being read, before it was known that the option is a
-                # boolean, so the value went in unvalidated and, say, maybe
-                # became the JSON string "maybe". Validate it now and put right
-                # what was emitted.
+                # That statement was emitted while reading the arguments,
+                # before the option was known to be a boolean, so the value is
+                # unvalidated: maybe would become the JSON string "maybe".
                 boolval = mapbool(json_given[opt], opt)
                 if(boolval) {
                   boolval = "true"
@@ -3144,11 +3108,10 @@ _junonia_set_args () {
               }
             } else {
               if(is_bool) {
-                # A boolean whose default is documented appears in the JSON
-                # whatever that default is, false included, so that the key
-                # exists in the body. One with no default, and nothing given,
-                # is left out entirely: the caller never said anything about
-                # it, and for a PATCH, absent means leave alone.
+                # A documented default appears in the body whatever it is,
+                # false included, so the key exists. With no default and
+                # nothing given the key is left out, which for a PATCH is the
+                # difference between false and leave alone.
                 if(has_default || env_set) {
                   if(optval) {
                     make_jqprog(opt, "true")
