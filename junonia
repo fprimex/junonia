@@ -1314,6 +1314,16 @@ _junonia_md2help () {
       next
     }
 
+    # A title holding the whole command locates it without also needing a title
+    # for the program itself, as when only the documentation of one command is
+    # streamed.
+    title && subcmd_level == 1 && $0 == cmd {
+      cmd_part = $0
+      subcmd_level = n_cmd_parts + 1
+      echodebug("whole command located: " cmd_part)
+      next
+    }
+
     # Keep moving until the top level command is located
     subcmd_level == 1 {
       next
@@ -1839,6 +1849,15 @@ _junonia_help_metacmds () {
            p'
 }
 
+# The documentation of the commands junonia provides itself, which lives in
+# shell functions rather than in the program documentation. Nothing is emitted
+# for help on the program itself, where they are summarized under METACOMMANDS.
+_junonia_metacmd_docs () {
+  if [ "$1" != "$JUNONIA_NAME" ]; then
+    _junonia_mds
+  fi
+}
+
 _junonia_help () {
   echodebug "begin help"
 
@@ -1857,6 +1876,7 @@ _junonia_help () {
       helptext="$( {
                      echo "$mds"
                      _junonia_plugin_docs
+                     _junonia_metacmd_docs "$cmd"
                    } | _junonia_md2help "$cmd")"
       if [ "$JUNONIA_NAME" = "$cmd" ]; then
         helptext="$helptext $(_junonia_help_metacmds)"
@@ -1866,25 +1886,20 @@ _junonia_help () {
       helptext="$( {
                      cat "$JUNONIA_MD"
                      _junonia_plugin_docs
+                     _junonia_metacmd_docs "$cmd"
                    } | _junonia_md2help "$cmd")"
       if [ "$JUNONIA_NAME" = "$cmd" ]; then
         helptext="$helptext $(_junonia_help_metacmds)"
       fi
       ;;
     md_string)
-      if [ "$JUNONIA_NAME" = junonia ]; then
-        helptext="$( {
-                      echo "$JUNONIA_MD"
-                      _junonia_plugin_docs
-                    } | _junonia_md2help "$cmd")"
-      else
-        helptext="$( {
-                      echo "$JUNONIA_MD"
-                      _junonia_plugin_docs
-                    } | _junonia_md2help "$cmd")"
-        if [ "$JUNONIA_NAME" = "$cmd" ]; then
-          helptext="$helptext $(_junonia_help_metacmds)"
-        fi
+      helptext="$( {
+                     echo "$JUNONIA_MD"
+                     _junonia_plugin_docs
+                     _junonia_metacmd_docs "$cmd"
+                   } | _junonia_md2help "$cmd")"
+      if [ "$JUNONIA_NAME" = "$cmd" ]; then
+        helptext="$helptext $(_junonia_help_metacmds)"
       fi
       ;;
     spec_string)

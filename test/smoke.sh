@@ -102,6 +102,19 @@ replace() {
 }
 
 ###
+### Shell syntax
+###
+### The awk programs are single quoted strings, so a stray apostrophe in a
+### comment is a syntax error rather than a comment.
+
+printf '### shell syntax\n'
+
+for f in junonia junonia_web junonia_bootstrap; do
+  out="$( sh -n "$root/$f" 2>&1 )"
+  check "syntax: $f" '' "$out"
+done
+
+###
 ### Part one: the bundled examples
 ###
 
@@ -1030,6 +1043,23 @@ check_contains 'help: parent lists its options' "$out" '-nest-opt'
 # Option aliases appear in the help and work on the command line.
 run_app nest help
 check_contains 'help: option aliases' "$out" 'nest-opt'
+
+# The commands junonia provides itself are documented in shell functions, so
+# they have to be streamed into the help renderer.
+run_app help config
+check_contains 'help: metacommand name' "$out" 'prog config -- Display or edit'
+check_contains 'help: metacommand description' "$out" \
+  'without any options displays the current configuration'
+
+run_app help version
+check_contains 'help: metacommand option' "$out" '-junonia'
+
+run_app help plugin install
+check_contains 'help: metacommand two levels down' "$out" 'prog plugin install --'
+
+run_app help
+check 'help: metacommands are listed once' '1' \
+  "$(printf '%s\n' "$out" | grep -c '^  config')"
 
 run_app nest -nest-opt n
 check 'option by its name' 'shared=[shared_default] nest_opt=[n]' "$out"
