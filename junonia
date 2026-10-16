@@ -433,25 +433,24 @@ junonia_awk_json_escape='
 junonia_awk_jq_path='
   # The name of a JSON argument becomes a key of the payload, and a key may hold
   # anything at all, so every identifier of the path is quoted: .x=1 is the one
-  # key "x=1". Nesting is kept, so .a.b remains the two keys it names. A
-  # subscript is jq syntax rather than part of a key, and stays unquoted.
-  function jq_path(name,   parts, nparts, i, j, out, rest, c) {
+  # key "x=1". Nesting is kept, so .a.b remains the two keys it names. Only the
+  # trailing [] that appends to an array is syntax; brackets elsewhere belong to
+  # the key, so .tag[]s is the one key "tag[]s".
+  function jq_path(name,   parts, nparts, i, j, out, suffix, c) {
     if(substr(name, 1, 1) == ".") {
       name = substr(name, 2)
     }
+    suffix = ""
+    if(substr(name, length(name)-1, 2) == "[]") {
+      suffix = "[]"
+      name = substr(name, 1, length(name) - 2)
+    }
     nparts = split(name, parts, ".")
     if(! nparts) {
-      return ".\"\""
+      return ".\"\"" suffix
     }
     out = ""
     for(i = 1; i <= nparts; i++) {
-      # A subscript is jq syntax rather than part of the key, so it is left
-      # outside the quotes.
-      rest = ""
-      if(match(parts[i], /\[/)) {
-        rest = substr(parts[i], RSTART)
-        parts[i] = substr(parts[i], 1, RSTART - 1)
-      }
       out = out ".\""
       for(j = 1; j <= length(parts[i]); j++) {
         c = substr(parts[i], j, 1)
@@ -460,9 +459,9 @@ junonia_awk_jq_path='
         }
         out = out c
       }
-      out = out "\"" rest
+      out = out "\""
     }
-    return out
+    return out suffix
   }
 
   # Assign to a JSON name in the program built so far, replacing the statement

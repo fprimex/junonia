@@ -801,10 +801,19 @@ jflag=[]' "$out"
   run_app json .a.b 1
   check_contains 'json: a dot nests' "$out" '"a":{"b":1}'
 
-  run_app json .a[0].b v
-  check_contains 'json: a subscript stays jq syntax' "$out" '"a":[{"b":"v"}]'
+  # Brackets belong to the key, except the trailing pair that appends to an
+  # array, which is what makes a key ending in [] unsettable.
+  run_app json '.tag[]s' a
+  check_contains 'json: brackets inside a key' "$out" '"tag[]s":"a"'
 
-  run_app json .tags[] x .tags[] y
+  run_app json '.tag[]s[]' a '.tag[]s[]' b
+  check_contains 'json: the trailing pair still appends' "$out" \
+    '"tag[]s":["a","b"]'
+
+  run_app json '.a[0].b' v
+  check_contains 'json: an index is part of the key' "$out" '"a[0]":{"b":"v"}'
+
+  run_app json '.tags[]' x '.tags[]' y
   check_contains 'json: an array appends' "$out" '"tags":["x","y"]'
 
   # A dot token in the value position of a flag is a JSON flag, and the
