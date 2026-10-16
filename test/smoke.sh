@@ -431,6 +431,10 @@ A JSON string with a default. [default: `nicko`]
 * `-plain P`
 
 An ordinary option, to show that JSON options take no argument slot. [default: `pp`]
+
+* `-jflag`
+
+A flag, to show a JSON flag held in the value position of an option.
 MDEOF
 
 cat > "$app/cmd/prog_json.sh" <<'CMDEOF'
@@ -439,6 +443,7 @@ prog_json () {
   echo "argc=$#"
   echo "shared=[$1]"
   echo "plain=[$2]"
+  echo "jflag=[$3]"
 }
 CMDEOF
 
@@ -743,9 +748,10 @@ if command -v jq >/dev/null 2>&1; then
   run_in "$app" ./prog json
   check 'json: documented defaults, true and false' \
     'json=[{"enabled":true,"disabled":false,"nick":"nicko"}]
-argc=2
+argc=3
 shared=[shared_default]
-plain=[pp]' "$out"
+plain=[pp]
+jflag=[]' "$out"
 
   clear_prog_env
   run_in "$app" ./prog json .bare
@@ -779,21 +785,45 @@ plain=[pp]' "$out"
     'option .enabled argument must be omitted (true)'
   check 'json: cli value must be a boolean, status' '1' "$rc"
 
-  # Name and value are separate words here as well. The name goes into the jq
-  # program as given, so report it rather than hand it on to jq.
+  # A word beginning with a dot names one key, whatever it holds, and takes its
+  # value from the following word.
+  run_app json .x=1 bob
+  check_contains 'json: a key may hold an equals sign' "$out" '"x=1":"bob"'
+
   run_app json .enabled=false
-  check_contains 'json: name and value are separate words' "$out" \
-    'unknown option: .enabled=false'
-  check 'json: name and value are separate words, status' '1' "$rc"
+  check_contains 'json: a whole word is one key' "$out" '"enabled=false":true'
+
+  run_app json '.a"b' v
+  check_contains 'json: a key may hold a quote' "$out" '"a\"b":"v"'
+
+  # A dot nests, and a name that is not a plain identifier is quoted, so the
+  # payload holds the keys the arguments named.
+  run_app json .a.b 1
+  check_contains 'json: a dot nests' "$out" '"a":{"b":1}'
+
+  run_app json .a[0].b v
+  check_contains 'json: a subscript stays jq syntax' "$out" '"a":[{"b":"v"}]'
+
+  run_app json .tags[] x .tags[] y
+  check_contains 'json: an array appends' "$out" '"tags":["x","y"]'
+
+  # A dot token in the value position of a flag is a JSON flag, and the
+  # statement held for it is uncommented rather than dropped.
+  run_app json -jflag .x=1
+  check_contains 'json: a json flag held for an option value' "$out" \
+    '"x=1":true'
+  check_contains 'json: the option it was held for is the flag' "$out" \
+    'jflag=[1]'
 
   # A token holding an equals sign is not a name, but in the value position of
   # an option it is data, and junonia has no business rejecting it.
   run_app json -plain .enabled=false
   check 'json: the value of an option is data' \
     'json=[{"enabled":true,"disabled":false,"nick":"nicko"}]
-argc=2
+argc=3
 shared=[shared_default]
-plain=[.enabled=false]' "$out"
+plain=[.enabled=false]
+jflag=[]' "$out"
 
   clear_prog_env
   run_in "$app" env PROG_json_enabled=false ./prog json
@@ -809,9 +839,10 @@ plain=[.enabled=false]' "$out"
   clear_prog_env
   run_in "$app" ./prog json .bare .name bob
   check 'json: takes no argument slot' \
-    'argc=2
+    'argc=3
 shared=[shared_default]
-plain=[pp]' "$(printf '%s\n' "$out" | tail -n +2)"
+plain=[pp]
+jflag=[]' "$(printf '%s\n' "$out" | tail -n +2)"
 else
   printf '# jq is not installed, skipped JSON option tests\n'
 fi

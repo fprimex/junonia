@@ -430,6 +430,80 @@ junonia_awk_json_escape='
 # All bools are either 1 or empty, but we accept the text true, 1, and the
 # presence of the flag (empty value) as true, and the text false and 0 as
 # false. All variations of casing for true and false are accepted.
+junonia_awk_jq_path='
+  # The name of a JSON argument becomes a key of the payload, and a key may hold
+  # anything at all, so every identifier of the path is quoted: .x=1 is the one
+  # key "x=1". Nesting is kept, so .a.b remains the two keys it names. A
+  # subscript is jq syntax rather than part of a key, and stays unquoted.
+  function jq_path(name,   parts, nparts, i, j, out, rest, c) {
+    if(substr(name, 1, 1) == ".") {
+      name = substr(name, 2)
+    }
+    nparts = split(name, parts, ".")
+    if(! nparts) {
+      return ".\"\""
+    }
+    out = ""
+    for(i = 1; i <= nparts; i++) {
+      # A subscript is jq syntax rather than part of the key, so it is left
+      # outside the quotes.
+      rest = ""
+      if(match(parts[i], /\[/)) {
+        rest = substr(parts[i], RSTART)
+        parts[i] = substr(parts[i], 1, RSTART - 1)
+      }
+      out = out ".\""
+      for(j = 1; j <= length(parts[i]); j++) {
+        c = substr(parts[i], j, 1)
+        if(c == "\\" || c == "\"") {
+          out = out "\\"
+        }
+        out = out c
+      }
+      out = out "\"" rest
+    }
+    return out
+  }
+
+  # Assign to a JSON name in the program built so far, replacing the statement
+  # made for it while the arguments were read. Statements are compared
+  # literally, since a key holds anything at all, and a statement still held for
+  # a possible JSON flag stays held.
+  function set_json_stmt(name, val,   lines, n, i, line, body, path, cmt) {
+    path = jq_path(name)
+    n = split(jqprog, lines, "\n")
+    jqprog = ""
+    for(i = 1; i <= n; i++) {
+      line = lines[i]
+      body = line
+      cmt = ""
+      if(substr(line, 1, 2) == "# ") {
+        cmt = "# "
+        body = substr(line, 3)
+      }
+      if(substr(body, 1, length(path) + 3) == path " = ") {
+        line = cmt path " = " val " |"
+      }
+      jqprog = jqprog "\n" line
+    }
+  }
+
+  # Take the comment off the statement held for a name that turns out to be a
+  # JSON flag rather than the value of an option.
+  function uncomment_json_stmt(name,   lines, n, i, line, path) {
+    path = jq_path(name)
+    n = split(jqprog, lines, "\n")
+    jqprog = ""
+    for(i = 1; i <= n; i++) {
+      line = lines[i]
+      if(substr(line, 1, 2) == "# " && substr(line, 3, length(path)) == path) {
+        line = substr(line, 3)
+      }
+      jqprog = jqprog "\n" line
+    }
+  }
+'
+
 junonia_awk_mapbool='
   function mapbool(b, opt) {
     echodebug("setting bool " opt " using value " b)
@@ -477,6 +551,11 @@ junonia_awk_make_jqprog='
       # If the next thing is a comment, then add the comment and move on.
       jqprog = jqprog "\n" name
       return 0
+    }
+
+    if(substr(name, 1, 1) == ".") {
+      # The name is a key of the payload, not jq syntax.
+      name = jq_path(name)
     }
 
     if(next_argchar == "-" || next_argchar == "." || ! next_argchar) {
@@ -533,6 +612,7 @@ $junonia_awk_echodebug
 $junonia_awk_echodebug_raw
 $junonia_awk_randomish_int
 $junonia_awk_json_escape
+$junonia_awk_jq_path
 $junonia_awk_mapbool
 $junonia_awk_make_jqarg
 $junonia_awk_make_jqprog
@@ -2784,14 +2864,9 @@ _junonia_set_args () {
                   opts[ARGV[i]] = ARGV[i+1]
                   echodebug(ARGV[i+1])
 
-                  # The value may yet become a JSON flag: should the option
-                  # turn out to be one, the comment comes off this statement
-                  # and it assigns the flag. A name holds no equals sign, so
-                  # there would be nothing to assign, and this token is simply
-                  # the value of the option.
-                  if(! index(ARGV[i+1], "=")) {
-                    make_jqprog("# " ARGV[i+1] " = true |")
-                  }
+                  # The value may yet become a JSON flag, in which case the
+                  # comment on this statement comes off and it assigns it.
+                  make_jqprog("# " jq_path(ARGV[i+1]) " = true |")
                 }
               } else {
                 # Store this arg and its value, which is the next value.
@@ -2816,15 +2891,6 @@ _junonia_set_args () {
             }
 
             seen_json_group = 1
-
-            # An option and its value are separate words, here as with a
-            # hyphen, and the name goes into the jq program as given, so
-            # report it rather than let jq fail on the program built from it.
-            if(index(ARGV[i], "=")) {
-              echoerr("unknown option: " ARGV[i])
-              e = 1
-              exit
-            }
 
             # This is a JSON argument
             delete_val = make_jqprog(ARGV[i], ARGV[i+1])
@@ -3047,7 +3113,7 @@ _junonia_set_args () {
                 # already, but is commented out. Uncomment it. This keeps
                 # the order of the program statements, which can be important
                 # if also consuming the arguments in other ways.
-                sub("# " opts[opt], opts[opt], jqprog)
+                uncomment_json_stmt(opts[opt])
                 echodebug("")
                 opts[opt] = 1
               }
@@ -3130,11 +3196,7 @@ _junonia_set_args () {
                 } else {
                   boolval = "false"
                 }
-                # The pattern needs the dots of the option name escaped, but
-                # the replacement must keep them as they are.
-                pat = opt
-                gsub(/\./, "\\.", pat)
-                gsub(pat " = [^|]*\\|", opt " = " boolval " |", jqprog)
+                set_json_stmt(opt, boolval)
               }
             } else {
               if(is_bool) {
