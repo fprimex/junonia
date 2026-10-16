@@ -2784,8 +2784,14 @@ _junonia_set_args () {
                   opts[ARGV[i]] = ARGV[i+1]
                   echodebug(ARGV[i+1])
 
-                  # The value may yet become a JSON flag.
-                  make_jqprog("# " ARGV[i+1] " = true |")
+                  # The value may yet become a JSON flag: should the option
+                  # turn out to be one, the comment comes off this statement
+                  # and it assigns the flag. A name holds no equals sign, so
+                  # there would be nothing to assign, and this token is simply
+                  # the value of the option.
+                  if(! index(ARGV[i+1], "=")) {
+                    make_jqprog("# " ARGV[i+1] " = true |")
+                  }
                 }
               } else {
                 # Store this arg and its value, which is the next value.
@@ -2810,6 +2816,15 @@ _junonia_set_args () {
             }
 
             seen_json_group = 1
+
+            # An option and its value are separate words, here as with a
+            # hyphen, and the name goes into the jq program as given, so
+            # report it rather than let jq fail on the program built from it.
+            if(index(ARGV[i], "=")) {
+              echoerr("unknown option: " ARGV[i])
+              e = 1
+              exit
+            }
 
             # This is a JSON argument
             delete_val = make_jqprog(ARGV[i], ARGV[i+1])

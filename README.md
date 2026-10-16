@@ -286,6 +286,8 @@ A boolean with a documented default appears in the JSON whatever that default is
 
 JSON options are not passed to the command function and take up no argument slot, so the positions of the arguments a function receives are unaffected by how many JSON options are documented or given.
 
+Their names need not be documented. junonia collects every JSON option it is given, because what an API call accepts as a payload is rarely something a manual can enumerate, and never reports an undocumented one as an unknown option. What documenting one does is give it a default, which also puts a boolean into every body, true or false; an undocumented name, like a documented one with no default, appears only when given.
+
 Values may come from the command line (`.name bob`, `.enabled false`), from a configuration file entry, or from the environment variable, in the same precedence order as any other option, and a value given on the command line beats a documented default of either sign.
 
 ## Function notes and features
@@ -298,7 +300,7 @@ Values may come from the command line (`.name bob`, `.enabled false`), from a co
 * It is not recommended to implement the top level function as, e.g., `prog.sh` in the commands directory. This is because when the search for the `prog` command is done, the top level script itself will be found. Instead, implement the `prog` function in the top level script and junonia will detect that it is a shell function properly.
 * A command should not have both positional parameters and subcommands. Positional parameters are resolved before subcommands, so a value that happens to name a subcommand is taken for the positional parameter, and the options of that subcommand are then reported as unknown. For example, document `prog opts [POS1]` or `prog opts SUBCOMMAND`, but not both.
 * All positional parameters must precede all options, and options must follow the complete subcommand path. `prog sub -shared-foo one -opt two` is valid; `prog -shared-foo one sub -opt two` is not.
-* An option and its value are separate words. The `prog -foo-bar=value` form is not accepted; use `prog -foo-bar value`.
+* An option and its value are separate words, for JSON options as for the rest. The `prog -foo-bar=value` and `prog .foo-bar=value` forms are not accepted; use `prog -foo-bar value` and `prog .foo-bar value`.
 
 ## Configuration file and environment variables
 

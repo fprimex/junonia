@@ -779,6 +779,22 @@ plain=[pp]' "$out"
     'option .enabled argument must be omitted (true)'
   check 'json: cli value must be a boolean, status' '1' "$rc"
 
+  # Name and value are separate words here as well. The name goes into the jq
+  # program as given, so report it rather than hand it on to jq.
+  run_app json .enabled=false
+  check_contains 'json: name and value are separate words' "$out" \
+    'unknown option: .enabled=false'
+  check 'json: name and value are separate words, status' '1' "$rc"
+
+  # A token holding an equals sign is not a name, but in the value position of
+  # an option it is data, and junonia has no business rejecting it.
+  run_app json -plain .enabled=false
+  check 'json: the value of an option is data' \
+    'json=[{"enabled":true,"disabled":false,"nick":"nicko"}]
+argc=2
+shared=[shared_default]
+plain=[.enabled=false]' "$out"
+
   clear_prog_env
   run_in "$app" env PROG_json_enabled=false ./prog json
   check_contains 'json: environment variable' "$out" '"enabled":false'
