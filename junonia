@@ -431,37 +431,106 @@ junonia_awk_json_escape='
 # presence of the flag (empty value) as true, and the text false and 0 as
 # false. All variations of casing for true and false are accepted.
 junonia_awk_jq_path='
-  # The name of a JSON argument becomes a key of the payload, and a key may hold
-  # anything at all, so every identifier of the path is quoted: .x=1 is the one
-  # key "x=1". Nesting is kept, so .a.b remains the two keys it names. Only the
-  # trailing [] that appends to an array is syntax; brackets elsewhere belong to
-  # the key, so .tag[]s is the one key "tag[]s".
-  function jq_path(name,   parts, nparts, i, j, out, suffix, c) {
+  # Escape what jq will not take raw inside a quoted string, which is where
+  # every key goes, and what jq does with a value once make_jqarg quotes it.
+  function jq_escape(s,   out, i, c) {
+    out = ""
+    for(i = 1; i <= length(s); i++) {
+      c = substr(s, i, 1)
+      if(c == "\\") {
+        out = out "\\\\"
+      } else if(c == "\"") {
+        out = out "\\\""
+      } else if(c == "\n") {
+        out = out "\\n"
+      } else if(c == "\r") {
+        out = out "\\r"
+      } else if(c == "\t") {
+        out = out "\\t"
+      } else {
+        out = out c
+      }
+    }
+    return out
+  }
+
+  # The name of a JSON argument is a path whose identifiers become keys of the
+  # payload, quoted so that a key may hold anything at all: .x=1 is the one key
+  # "x=1". A dot nests, so .a.b is b within a. A bracket is jq syntax, holding a
+  # number to index an array or text to name a key, and empty meaning append to
+  # the array. A backslash makes the next character literal, so \. is a dot
+  # within a key rather than a level. A bracket is literal when nothing closes
+  # it, and text after a closed bracket is not a path.
+  function jq_path(name,   out, i, c, ident, rest, stop) {
     if(substr(name, 1, 1) == ".") {
       name = substr(name, 2)
     }
-    suffix = ""
-    if(substr(name, length(name)-1, 2) == "[]") {
-      suffix = "[]"
-      name = substr(name, 1, length(name) - 2)
-    }
-    nparts = split(name, parts, ".")
-    if(! nparts) {
-      return ".\"\"" suffix
+    if(! length(name)) {
+      return ".\"\""
     }
     out = ""
-    for(i = 1; i <= nparts; i++) {
-      out = out ".\""
-      for(j = 1; j <= length(parts[i]); j++) {
-        c = substr(parts[i], j, 1)
-        if(c == "\\" || c == "\"") {
-          out = out "\\"
-        }
-        out = out c
+    i = 1
+    while(i <= length(name)) {
+      # A dot divides one key from the next, and belongs to neither.
+      if(substr(name, i, 1) == ".") {
+        i++
       }
-      out = out "\""
+
+      ident = ""
+      while(i <= length(name)) {
+        c = substr(name, i, 1)
+        if(c == "\\" && i < length(name)) {
+          ident = ident substr(name, i+1, 1)
+          i += 2
+          continue
+        }
+        if(c == ".") {
+          break
+        }
+        # A bracket with nothing to close it is a character of the key.
+        if(c == "[" && index(substr(name, i+1), "]")) {
+          break
+        }
+        ident = ident c
+        i++
+      }
+      # There is no key between two brackets, as in .a[0][1].
+      if(ident || substr(name, i, 1) != "[") {
+        out = out ".\"" jq_escape(ident) "\""
+      }
+
+      # Brackets following a key are syntax: an index, a key, or the marker
+      # that appends to an array.
+      while(substr(name, i, 1) == "[") {
+        rest = substr(name, i+1)
+        stop = index(rest, "]")
+        ident = substr(rest, 1, stop - 1)
+        i += stop + 1
+
+        if(! ident) {
+          out = out "[]"
+        } else if(ident ~ /^-?[0-9]+$/) {
+          out = out "[" ident "]"
+        } else {
+          # Text between brackets is a key, quoted by the caller or not.
+          if(length(ident) > 1 && substr(ident, 1, 1) == "\"" &&
+             substr(ident, length(ident), 1) == "\"") {
+            ident = substr(ident, 2, length(ident) - 2)
+          }
+          out = out ".\"" jq_escape(ident) "\""
+        }
+
+        if(substr(name, i, 1) == "[" || substr(name, i, 1) == "." ||
+           i > length(name)) {
+          break
+        }
+        # Only a name that cannot be a path gets this far, such as tag[]s.
+        echoerr("invalid JSON argument: ." name)
+        e = 1
+        exit 1
+      }
     }
-    return out suffix
+    return out
   }
 
   # Assign to a JSON name in the program built so far, replacing the statement
@@ -535,7 +604,7 @@ junonia_awk_make_jqarg='
       # a string no matter what. Values like true and 2.6 can be made "true"
       # and "2.6" by specifying true|tostring and 2.6|tostring.
       sub(/\|tostring$/, "", val)
-      return "\"" val "\""
+      return "\"" jq_escape(val) "\""
     }
   }
 '
@@ -3554,16 +3623,18 @@ junonia_runspec_filtered () {
 ### Run execution
 ###
 
+# These carry argument values and the jq program, both of which hold arbitrary
+# text, and the shell builtin echo interprets backslash escapes.
 get_jqprog () {
-  echo "$1"
+  printf '%s\n' "$1"
 }
 
 get_jqargs () {
-   echo "$JW_JQPROG" | sed '/^#/d;$d' | cut -d ' ' -f 1
+   printf '%s\n' "$JW_JQPROG" | sed '/^#/d;$d' | cut -d ' ' -f 1
 }
 
 get_args () {
-  echo "$2"
+  printf '%s\n' "$2"
 }
 
 _junonia_run_final () {

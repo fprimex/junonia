@@ -439,11 +439,11 @@ MDEOF
 
 cat > "$app/cmd/prog_json.sh" <<'CMDEOF'
 prog_json () {
-  echo "json=[$JW_JSON]"
-  echo "argc=$#"
-  echo "shared=[$1]"
-  echo "plain=[$2]"
-  echo "jflag=[$3]"
+  printf 'json=[%s]\n' "$JW_JSON"
+  printf 'argc=%s\n' "$#"
+  printf 'shared=[%s]\n' "$1"
+  printf 'plain=[%s]\n' "$2"
+  printf 'jflag=[%s]\n' "$3"
 }
 CMDEOF
 
@@ -785,8 +785,9 @@ jflag=[]' "$out"
     'option .enabled argument must be omitted (true)'
   check 'json: cli value must be a boolean, status' '1' "$rc"
 
-  # A word beginning with a dot names one key, whatever it holds, and takes its
-  # value from the following word.
+  # A JSON name is a path, and each identifier of it becomes a key. Anything jq
+  # allows in a key may be used, so a name that is not a plain identifier is
+  # quoted rather than refused.
   run_app json .x=1 bob
   check_contains 'json: a key may hold an equals sign' "$out" '"x=1":"bob"'
 
@@ -796,25 +797,42 @@ jflag=[]' "$out"
   run_app json '.a"b' v
   check_contains 'json: a key may hold a quote' "$out" '"a\"b":"v"'
 
-  # A dot nests, and a name that is not a plain identifier is quoted, so the
-  # payload holds the keys the arguments named.
+  # A dot nests unless escaped; brackets hold a number that indexes an array or
+  # text that names a key, and the empty pair appends.
   run_app json .a.b 1
   check_contains 'json: a dot nests' "$out" '"a":{"b":1}'
 
-  # Brackets belong to the key, except the trailing pair that appends to an
-  # array, which is what makes a key ending in [] unsettable.
-  run_app json '.tag[]s' a
-  check_contains 'json: brackets inside a key' "$out" '"tag[]s":"a"'
-
-  run_app json '.tag[]s[]' a '.tag[]s[]' b
-  check_contains 'json: the trailing pair still appends' "$out" \
-    '"tag[]s":["a","b"]'
+  run_app json '.a\.b' v
+  check_contains 'json: an escaped dot is part of the key' "$out" '"a.b":"v"'
 
   run_app json '.a[0].b' v
-  check_contains 'json: an index is part of the key' "$out" '"a[0]":{"b":"v"}'
+  check_contains 'json: a number brackets an array' "$out" '"a":[{"b":"v"}]'
+
+  run_app json '.a[b]' v
+  check_contains 'json: text brackets a key' "$out" '"a":{"b":"v"}'
 
   run_app json '.tags[]' x '.tags[]' y
-  check_contains 'json: an array appends' "$out" '"tags":["x","y"]'
+  check_contains 'json: an empty pair appends' "$out" '"tags":["x","y"]'
+
+  # After a closed bracket only a dot, another bracket or the end may follow.
+  run_app json '.tag[]s' a
+  check_contains 'json: text after a bracket is not a path' "$out" \
+    'invalid JSON argument: .tag[]s'
+  check 'json: text after a bracket is not a path, status' '1' "$rc"
+
+  # Values are quoted for jq as well, so they hold what was typed.
+  run_app json .name 'a"b'
+  check_contains 'json: a value may hold a quote' "$out" '"name":"a\"b"'
+
+  run_app json .name 'a\b'
+  check_contains 'json: a value may hold a backslash' "$out" '"name":"a\\b"'
+
+  run_app json .name "$(printf 'a\nb')"
+  check_contains 'json: a value may hold a newline' "$out" '"name":"a\nb"'
+
+  run_app json -plain 'a\b'
+  check_contains 'json: an option value keeps a backslash' "$out" \
+    'plain=[a\b]'
 
   # A dot token in the value position of a flag is a JSON flag, and the
   # statement held for it is uncommented rather than dropped.

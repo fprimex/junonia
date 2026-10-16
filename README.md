@@ -288,9 +288,15 @@ JSON options are not passed to the command function and take up no argument slot
 
 Their names need not be documented. junonia collects every JSON option it is given, because what an API call accepts as a payload is rarely something a manual can enumerate, and never reports an undocumented one as an unknown option. What documenting one does is give it a default, which also puts a boolean into every body, true or false; an undocumented name, like a documented one with no default, appears only when given.
 
-The word is the key. Everything of the name after the leading period becomes a key of the body, quoted as jq requires, so `.x=1 bob` sends `{"x=1":"bob"}` and `.a.b 1` sends `{"a":{"b":1}}` — a period nests, and dashes, equals signs and spaces (with the usual shell quoting) are simply the key. Appending `[]` to a name adds each value to an array instead of replacing the last, so `.tags[] x .tags[] y` sends `{"tags":["x","y"]}`.
+The name is a path, and each identifier of it becomes a key, quoted as jq requires, so anything jq allows in a key can be given: `.x=1 bob` sends `{"x=1":"bob"}`, dashes, equals signs and spaces (with the usual shell quoting) being simply the key.
 
-That trailing `[]` is the only syntax in a name. It is what makes a key whose own name ends in `[]` unsettable, so `{"tags":["a","b"]}` can be asked for and `{"tags[]":["a","b"]}` cannot, valid JSON though it is. Brackets anywhere else are part of the key: `.tag[]s x` sends `{"tag[]s":"x"}`, `.a[0].b v` sends `{"a[0]":{"b":"v"}}`, and a trailing pair on such a name appends as it would on any other, so `.tag[]s[] x .tag[]s[] y` sends `{"tag[]s":["x","y"]}`.
+A period divides one key from the next, so `.foo.bar v` sends `{"foo":{"bar":"v"}}`. A backslash makes the character after it part of the key, so `.foo\.bar v` sends `{"foo.bar":"v"}`.
+
+Brackets are jq syntax. A number indexes an array, so `.a[0].b v` sends `{"a":[{"b":"v"}]}`. Text names a key, so `.a[b] v` sends what `.a.b v` sends, with this use for it: nothing is escaped between brackets, so `.a[b.c] v` sends `{"a":{"b.c":"v"}}`. An empty pair at the end of a name adds each value to the array rather than replacing the last, so `.tags[] x .tags[] y` sends `{"tags":["x","y"]}`.
+
+A name that is not a path is reported rather than handed on to jq, as `.tag[]s` is, and two keys cannot be named: one whose own name ends in `[]`, which the append marker claims, and one holding a `[` or `]` that is not part of the syntax above.
+
+Values are quoted for jq as well, so what is typed is what is sent, quote, backslash and newline included. Numbers and `true`, `false` and `null` go as themselves; one of those sent as a string takes `|tostring` appended.
 
 Values may come from the command line (`.name bob`, `.enabled false`), from a configuration file entry, or from the environment variable, in the same precedence order as any other option, and a value given on the command line beats a documented default of either sign.
 
