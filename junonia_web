@@ -215,10 +215,10 @@ $_junonia_web_cmds"
 
   junonia_auth_config
 
-  readonly JW_DEFAULT_CURLRC="$JUNONIA_CONFIGDIR/curlrc"
+  _junonia_readonly JW_DEFAULT_CURLRC="$JUNONIA_CONFIGDIR/curlrc"
   JW_CURLRC="${JW_CURLRC:-"$JW_DEFAULT_CURLRC"}"
   # Indicate that init has happened
-  readonly JW_INIT=1
+  _junonia_readonly JW_INIT=1
 }
 
 
@@ -299,7 +299,7 @@ junonia_jq_jtable='
         | join($jfs);
 '
 
-readonly JUNONIA_JQS="
+_junonia_readonly JUNONIA_JQS="
 $junonia_jq_jleaf
 $junonia_jq_jpath
 $junonia_jq_jtable
@@ -324,23 +324,26 @@ junonia_jprint () {
   # $1: JSON body
   # $2: Optional selector for jq to make the root
 
+  # A shift past the last argument stops dash, ksh and mksh outright, so only
+  # what is there is shifted.
+
   # no args, or both args empty
-  if [ $# -eq 0 ] || ( [ "$1" = "" ] && [ "$2" = "" ] ); then
+  if [ $# -eq 0 ] || ( [ "${1-}" = "" ] && [ "${2-}" = "" ] ); then
     _body="$(cat)"
     _selector=
   # explicit read from stdin or first arg is json arg (start with ".")
-  elif [ "$1" = "-" ] || [ "$(echo "$1" | cut -c 1)" = "." ]; then
+  elif [ "${1-}" = "-" ] || [ "$(echo "$1" | cut -c 1)" = "." ]; then
     _body="$(cat)"
-    _selector="$2"
+    _selector="${2-}"
     shift
-    shift
+    if [ $# -gt 0 ]; then shift; fi
   # 1 or more args, arg 1 is not - or starts with .
   # take $1 and $2, with $2 potentially empty
   else
     _body="$1"
-    _selector="$2"
+    _selector="${2-}"
     shift
-    shift
+    if [ $# -gt 0 ]; then shift; fi
   fi
 
   # This provides $ARGS.positional
@@ -826,8 +829,9 @@ junonia_request () {
       fi
     fi
 
-    # Was a page limit provided?
-    if [ "$1" -eq "$1" ] >/dev/null 2>&1; then
+    # Was a page limit provided? There has to be an argument to look at: dash
+    # reads the empty string as a number, and then there is nothing to shift.
+    if [ $# -gt 0 ] && [ "$1" -eq "$1" ] >/dev/null 2>&1; then
       echodebug "page limit is $1"
       _npages="$1"
       shift
@@ -839,8 +843,9 @@ junonia_request () {
       fi
     fi
 
-    # Was a _selector provided?
-    if [ -z "${1##.*}" ]; then
+    # Was a _selector provided? It has to be something, since with nothing
+    # left there is no selector and no argument to shift.
+    if [ $# -gt 0 ] && [ -z "${1##.*}" ]; then
       echodebug "selector provided for paging: $1"
       _selector="$1"
       shift
@@ -848,7 +853,7 @@ junonia_request () {
 
     # Was a _callback supplied?
     echodebug "checking to see if callback was supplied: $1"
-    if [ junonia_require_cmds "$1" 2>/dev/null ]; then
+    if [ $# -gt 0 ] && [ junonia_require_cmds "$1" 2>/dev/null ]; then
       echodebug "found callback command $1"
       _callback="$1"
       shift
