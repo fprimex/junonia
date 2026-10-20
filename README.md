@@ -374,9 +374,24 @@ Run the smoke tests with:
 $ test/smoke.sh
 ```
 
-The suite runs the examples above, then builds a program in a scratch directory and asserts on the exact argument list its command functions receive for every kind of argument: spec defaults, configuration file, environment variables, command line values, booleans, repeatable options, positional parameters, nested subcommands, and the error paths. It also exercises caching and the `config` subcommand. Nothing outside the scratch directory is touched.
+The suite runs the examples above, then builds a program in a scratch directory and asserts on the exact argument list its command functions receive for every kind of argument: spec defaults, configuration file, environment variables, command line values, booleans, repeatable options, positional parameters, nested subcommands, and the error paths. It also exercises caching, the `config` subcommand, the JSON options, and the web layer. Nothing outside the scratch directory is touched.
 
-Pass `-v` for the output of each failing check, and set `JUNONIA_SMOKE_KEEP=1` to leave the scratch directory in place for inspection. The suite is run against the BSD, GNU, and mawk AWK implementations; put whichever `awk` you want to exercise first in `PATH`.
+Every combination of shell and AWK runs, which is where the differences between them show up. The shells are
+
+```
+sh bash dash ksh zsh mksh yash pdksh busybox ash
+```
+
+and the AWKs are `awk`, `gawk`, and `mawk`. Whichever `awk` is found first is the one junonia finds, so the first entry of the list is used to stand for it, and combinations that resolve to the same executable run once. Busybox is run as `busybox sh`. Anything not installed is skipped.
+
+Narrow the matrix with `JUNONIA_TEST_SHELLS` and `JUNONIA_TEST_AWKS`, or run a single combination with `JUNONIA_SMOKE_SHELL` and `JUNONIA_SMOKE_AWK`:
+
+```
+$ JUNONIA_TEST_SHELLS='ksh mksh' test/smoke.sh
+$ JUNONIA_SMOKE_SHELL=dash JUNONIA_SMOKE_AWK=mawk test/smoke.sh
+```
+
+Pass `-v` for the output of each failing check, and set `JUNONIA_SMOKE_KEEP=1` to leave the scratch directory in place for inspection.
 
 ## Locale
 

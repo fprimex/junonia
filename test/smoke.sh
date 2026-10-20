@@ -27,6 +27,83 @@ me="$(basename "$0")"
 verbose=0
 [ "${1:-}" = "-v" ] && verbose=1
 
+###
+### The matrix: every shell and awk installed
+###
+### With neither of JUNONIA_SMOKE_SHELL and JUNONIA_SMOKE_AWK set, the suite runs
+### itself once for each combination of shell and awk that is installed, under
+### that shell and with that awk first on PATH. A run with JUNONIA_SMOKE_SHELL
+### set is one cell of that matrix and does not run the matrix again; narrow it
+### with JUNONIA_TEST_SHELLS and JUNONIA_TEST_AWKS.
+
+shells_default='/bin/sh bash dash ksh zsh mksh yash pdksh busybox ash'
+awks_default='awk gawk mawk'
+
+if [ -z "${JUNONIA_SMOKE_SHELL:-}" ]; then
+  smoke_self="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+  verbose_flag=
+  [ "$verbose" = 1 ] && verbose_flag=-v
+  combo_ok=0
+  combo_bad=0
+  combos_bad=
+
+  for shell_name in ${JUNONIA_TEST_SHELLS:-$shells_default}; do
+    # busybox is a shell only when it is told to be one
+    case "$shell_name" in
+      busybox) shell_run='busybox sh' ;;
+      *)       shell_run="$shell_name" ;;
+    esac
+    if ! command -v "${shell_run%% *}" >/dev/null 2>&1; then
+      printf 'skip %s: not installed\n' "$shell_name"
+      continue
+    fi
+
+    seen_awks=
+    for awk_name in ${JUNONIA_TEST_AWKS:-$awks_default}; do
+      awk_path="$(command -v "$awk_name" 2>/dev/null)" || {
+        printf 'skip %s / %s: awk not installed\n' "$shell_name" "$awk_name"
+        continue
+      }
+      # Where awk is gawk, the two names are one program and running both
+      # proves nothing.
+      case "$seen_awks" in
+        *" $awk_path "*) continue ;;
+      esac
+      seen_awks="$seen_awks $awk_path"
+
+      printf '\n### %s / %s\n' "$shell_name" "$awk_name"
+      # Unquoted so that `busybox sh` is the two words it has to be.
+      # shellcheck disable=SC2086
+      if env JUNONIA_SMOKE_SHELL="$shell_run" JUNONIA_SMOKE_AWK="$awk_path" \
+           $shell_run "$smoke_self" $verbose_flag; then
+        combo_ok=$((combo_ok + 1))
+      else
+        combo_bad=$((combo_bad + 1))
+        combos_bad="$combos_bad
+  $shell_name / $awk_name"
+      fi
+    done
+  done
+
+  printf '\nsmoke.sh: %d of %d shell and awk combinations passed\n' \
+    "$combo_ok" "$((combo_ok + combo_bad))"
+  if [ "$combo_bad" -ne 0 ]; then
+    printf 'failed combinations:%s\n' "$combos_bad"
+    exit 1
+  fi
+  exit 0
+fi
+
+# One cell of the matrix, or a direct run of it. This is both the shell the
+# suite itself runs under and the shell the programs it tests run under.
+run_shell="${JUNONIA_SMOKE_SHELL:-/bin/sh}"
+
+# zsh splits no unquoted parameter, which $assigns and $run_shell below depend
+# on.
+if [ -n "${ZSH_VERSION:-}" ]; then
+  setopt shwordsplit 2>/dev/null || :
+fi
+
 testdir="$(cd "$(dirname "$0")" && pwd)"
 root="$(dirname "$testdir")"
 export JUNONIA_ROOT="$root"
@@ -51,6 +128,14 @@ export JUNONIA_CACHEDIR="$sandbox/cache"
 export JUNONIA_CACHE=0
 mkdir -p "$HOME" "$JUNONIA_CONFIGDIR" "$JUNONIA_CACHEDIR"
 
+# The awk under test leads PATH, so every awk the library runs is that one.
+if [ -n "${JUNONIA_SMOKE_AWK:-}" ]; then
+  mkdir -p "$sandbox/bin"
+  ln -sf "$JUNONIA_SMOKE_AWK" "$sandbox/bin/awk"
+  PATH="$sandbox/bin:$PATH"
+  export PATH
+fi
+
 n_tests=0
 n_fail=0
 failures=
@@ -59,11 +144,19 @@ failures=
 ### Assertion helpers
 ###
 
+# Passing checks are quiet, because the whole matrix is a great many lines of
+# ok, and one line saying a combination passed says the same thing.
+pass() {
+  if [ "$verbose" = 1 ]; then
+    printf 'ok   %s\n' "$1"
+  fi
+}
+
 # check NAME EXPECTED ACTUAL
 check() {
   n_tests=$((n_tests + 1))
   if [ "$2" = "$3" ]; then
-    printf 'ok   %s\n' "$1"
+    pass "$1"
     return 0
   fi
   n_fail=$((n_fail + 1))
@@ -81,7 +174,7 @@ check() {
 check_contains() {
   n_tests=$((n_tests + 1))
   case "$2" in
-    *"$3"*) printf 'ok   %s\n' "$1"; return 0 ;;
+    *"$3"*) pass "$1"; return 0 ;;
   esac
   n_fail=$((n_fail + 1))
   failures="$failures
@@ -110,7 +203,12 @@ replace() {
 printf '### shell syntax\n'
 
 for f in junonia junonia_web junonia_bootstrap; do
-  out="$( sh -n "$root/$f" 2>&1 )"
+  # shellcheck disable=SC2086
+  out="$( $run_shell -n "$root/$f" 2>&1 )"
+  syn_status=$?
+  # ksh warns that $(( i + 1 )) is slower than (( i + 1 )), which is not a
+  # syntax error, so the exit status is what says whether the file parsed.
+  [ "$syn_status" = 0 ] && out=
   check "syntax: $f" '' "$out"
 done
 
@@ -120,7 +218,7 @@ done
 
 printf '### bundled examples\n'
 
-# run_in DIR [ARGS...] - sets out and rc
+# run_in DIR [ARGS...] - run a command in DIR, setting out and rc
 run_in() {
   dir="$1"
   shift
@@ -128,33 +226,44 @@ run_in() {
   rc=$?
 }
 
-run_in "$root/examples/run_from_defaults" ./prog
+# run_prog DIR [ARGS...] - run a program in DIR under the shell under test, so
+# that the library is exercised by each shell in the matrix rather than always
+# by the one in the program's #! line.
+run_prog() {
+  dir="$1"
+  shift
+  # shellcheck disable=SC2086
+  out="$( cd "$dir" && $run_shell "$@" 2>&1 )"
+  rc=$?
+}
+
+run_prog "$root/examples/run_from_defaults" ./prog
 check 'run_from_defaults: top level' '0' "$rc"
 check_contains 'run_from_defaults: top level output' "$out" \
   'Run `prog help` options and subcommands'
 
-run_in "$root/examples/run_from_defaults" ./prog sub1
+run_prog "$root/examples/run_from_defaults" ./prog sub1
 check 'run_from_defaults: subcommand defaults' \
   '-shared-arg: shared_default
 -sub1-opt1:  
 -bool1:      
 -bool2:      1' "$out"
 
-run_in "$root/examples/run_from_defaults" ./prog sub1 -sub1-opt1 X
+run_prog "$root/examples/run_from_defaults" ./prog sub1 -sub1-opt1 X
 check 'run_from_defaults: option value' \
   '-shared-arg: shared_default
 -sub1-opt1:  X
 -bool1:      
 -bool2:      1' "$out"
 
-run_in "$root/examples/run_from_defaults" ./prog sub1 -bool1
+run_prog "$root/examples/run_from_defaults" ./prog sub1 -bool1
 check 'run_from_defaults: flag' \
   '-shared-arg: shared_default
 -sub1-opt1:  
 -bool1:      1
 -bool2:      1' "$out"
 
-run_in "$root/examples/run_from_defaults" ./prog sub1 sub11
+run_prog "$root/examples/run_from_defaults" ./prog sub1 sub11
 check 'run_from_defaults: nested subcommand' \
   '-shared-arg: shared_default
 -sub1-opt1:  
@@ -162,33 +271,33 @@ check 'run_from_defaults: nested subcommand' \
 -bool2:      1
 -sub11-opt1: ' "$out"
 
-run_in "$root/examples/run_from_defaults" ./prog sub2 hello
+run_prog "$root/examples/run_from_defaults" ./prog sub2 hello
 check 'run_from_defaults: positional parameter' \
   '-shared-arg: shared_default
 POS1:        hello
 -sub2-opt1:  
 -sub2-opt2:  ' "$out"
 
-run_in "$root/examples/run_from_defaults" ./prog help
+run_prog "$root/examples/run_from_defaults" ./prog help
 check_contains 'run_from_defaults: help lists subcommands' "$out" 'sub1'
 check_contains 'run_from_defaults: help lists options' "$out" '-shared-arg'
 
-run_in "$root/examples/run_from_md" ./prog sub1 -sub1-opt1 X
+run_prog "$root/examples/run_from_md" ./prog sub1 -sub1-opt1 X
 check 'run_from_md: option value' \
   '-shared-arg: shared_default
 -sub1-opt1:  X' "$out"
 
-run_in "$root/examples/run_from_mdfile" ./prog sub1 -sub1-opt1 X
+run_prog "$root/examples/run_from_mdfile" ./prog sub1 -sub1-opt1 X
 check 'run_from_mdfile: option value' \
   '-shared-arg: 
 -sub1-opt1:  X' "$out"
 
-run_in "$root/examples/run_from_mdstring" ./prog sub1 -sub1-opt1 X
+run_prog "$root/examples/run_from_mdstring" ./prog sub1 -sub1-opt1 X
 check 'run_from_mdstring: option value' \
   '-shared-arg: 
 -sub1-opt1:  X' "$out"
 
-run_in "$root/examples/run_from_spec" ./prog sub1
+run_prog "$root/examples/run_from_spec" ./prog sub1
 check 'run_from_spec: defaults' \
   '-shared-arg: shared_default
 -param1    : p
@@ -196,7 +305,7 @@ check 'run_from_spec: defaults' \
 -bool1     : 
 -bool2     : ' "$out"
 
-run_in "$root/examples/run_from_spec" ./prog sub2 hello
+run_prog "$root/examples/run_from_spec" ./prog sub2 hello
 check 'run_from_spec: positional parameter' \
   '-shared-arg: shared_default
 -POS1:       hello
@@ -548,7 +657,8 @@ run_with() {
   done
   clear_prog_env
   # shellcheck disable=SC2086
-  run_in "$dir" env $assigns ./prog "$@"
+  # shellcheck disable=SC2086
+  run_in "$dir" env $assigns $run_shell ./prog "$@"
 }
 
 run_app() {
@@ -745,7 +855,7 @@ printf '\n### JSON options\n'
 
 if command -v jq >/dev/null 2>&1; then
   clear_prog_env
-  run_in "$app" ./prog json
+  run_prog "$app" ./prog json
   check 'json: documented defaults, true and false' \
     'json=[{"enabled":true,"disabled":false,"nick":"nicko"}]
 argc=3
@@ -754,22 +864,22 @@ plain=[pp]
 jflag=[]' "$out"
 
   clear_prog_env
-  run_in "$app" ./prog json .bare
+  run_prog "$app" ./prog json .bare
   check_contains 'json: flag with no default is absent until given' "$out" \
     '"bare":true'
 
   clear_prog_env
-  run_in "$app" ./prog json .enabled false
+  run_prog "$app" ./prog json .enabled false
   check_contains 'json: cli false beats a default of true' "$out" \
     '"enabled":false'
 
   clear_prog_env
-  run_in "$app" ./prog json .disabled true
+  run_prog "$app" ./prog json .disabled true
   check_contains 'json: cli true beats a default of false' "$out" \
     '"disabled":true'
 
   clear_prog_env
-  run_in "$app" ./prog json .name bob
+  run_prog "$app" ./prog json .name bob
   check_contains 'json: string value' "$out" '"name":"bob"'
 
   # The same spellings of true and false as everywhere else; anything else is
@@ -853,18 +963,19 @@ plain=[.enabled=false]
 jflag=[]' "$out"
 
   clear_prog_env
-  run_in "$app" env PROG_json_enabled=false ./prog json
+  # shellcheck disable=SC2086
+  run_in "$app" env PROG_json_enabled=false $run_shell ./prog json
   check_contains 'json: environment variable' "$out" '"enabled":false'
 
   clear_prog_env
   printf 'PROG_json_disabled=true\n' > "$JUNONIA_CONFIG"
-  run_in "$app" ./prog json
+  run_prog "$app" ./prog json
   check_contains 'json: configuration file' "$out" '"disabled":true'
 
   : > "$JUNONIA_CONFIG"
 
   clear_prog_env
-  run_in "$app" ./prog json .bare .name bob
+  run_prog "$app" ./prog json .bare .name bob
   check 'json: takes no argument slot' \
     'argc=3
 shared=[shared_default]
@@ -938,8 +1049,10 @@ WEOF
   chmod +x "$wapp/wprog"
 
   clear_prog_env
+  # shellcheck disable=SC2086
   run_in "$wapp" env PATH="$sandbox/stub:$PATH" \
-    WPROG_STUB="$sandbox/stub/args" JW_CURLRC="$sandbox/curlrc" ./wprog
+    WPROG_STUB="$sandbox/stub/args" JW_CURLRC="$sandbox/curlrc" \
+    $run_shell ./wprog
 
   check_contains 'web: web layer initialized' "$out" 'init=1'
   check_contains 'web: web layer default curlrc' "$out" 'default_curlrc=set'
