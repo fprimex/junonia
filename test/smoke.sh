@@ -36,7 +36,7 @@ verbose=0
 ### set is one cell of that matrix and does not run the matrix again; narrow it
 ### with JUNONIA_TEST_SHELLS and JUNONIA_TEST_AWKS.
 
-shells_default='/bin/sh bash dash ksh zsh mksh yash pdksh busybox ash'
+shells_default='/bin/sh bash dash ksh mksh yash pdksh busybox ash'
 awks_default='awk gawk mawk'
 
 if [ -z "${JUNONIA_SMOKE_SHELL:-}" ]; then
@@ -97,12 +97,6 @@ fi
 # One cell of the matrix, or a direct run of it. This is both the shell the
 # suite itself runs under and the shell the programs it tests run under.
 run_shell="${JUNONIA_SMOKE_SHELL:-/bin/sh}"
-
-# zsh splits no unquoted parameter, which $assigns and $run_shell below depend
-# on.
-if [ -n "${ZSH_VERSION:-}" ]; then
-  setopt shwordsplit 2>/dev/null || :
-fi
 
 testdir="$(cd "$(dirname "$0")" && pwd)"
 root="$(dirname "$testdir")"

@@ -379,10 +379,12 @@ The suite runs the examples above, then builds a program in a scratch directory 
 Every combination of shell and AWK runs, which is where the differences between them show up. The shells are
 
 ```
-sh bash dash ksh zsh mksh yash pdksh busybox ash
+sh bash dash ksh mksh yash pdksh busybox ash
 ```
 
 and the AWKs are `awk`, `gawk`, and `mawk`. Whichever `awk` is found first is the one junonia finds, so the first entry of the list is used to stand for it, and combinations that resolve to the same executable run once. Busybox is run as `busybox sh`. Anything not installed is skipped.
+
+zsh is not on the list. It is not a POSIX shell in the two ways that matter to a library: it splits no unquoted parameter, and `$0` names the running function rather than the script, and the file being read while a file is being sourced, so a program cannot work out its own path from where it was run. junonia is written to the POSIX shell rather than worked around for zsh.
 
 Narrow the matrix with `JUNONIA_TEST_SHELLS` and `JUNONIA_TEST_AWKS`, or run a single combination with `JUNONIA_SMOKE_SHELL` and `JUNONIA_SMOKE_AWK`:
 

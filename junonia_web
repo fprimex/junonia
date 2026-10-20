@@ -215,10 +215,10 @@ $_junonia_web_cmds"
 
   junonia_auth_config
 
-  _junonia_readonly JW_DEFAULT_CURLRC="$JUNONIA_CONFIGDIR/curlrc"
+  readonly JW_DEFAULT_CURLRC="$JUNONIA_CONFIGDIR/curlrc"
   JW_CURLRC="${JW_CURLRC:-"$JW_DEFAULT_CURLRC"}"
   # Indicate that init has happened
-  _junonia_readonly JW_INIT=1
+  readonly JW_INIT=1
 }
 
 
@@ -299,7 +299,7 @@ junonia_jq_jtable='
         | join($jfs);
 '
 
-_junonia_readonly JUNONIA_JQS="
+readonly JUNONIA_JQS="
 $junonia_jq_jleaf
 $junonia_jq_jpath
 $junonia_jq_jtable
@@ -324,8 +324,8 @@ junonia_jprint () {
   # $1: JSON body
   # $2: Optional selector for jq to make the root
 
-  # A shift past the last argument stops dash, ksh and mksh outright, so only
-  # what is there is shifted.
+  # Only what is there gets shifted, a shift past the last argument stopping
+  # dash, ksh, and mksh outright.
 
   # no args, or both args empty
   if [ $# -eq 0 ] || ( [ "${1-}" = "" ] && [ "${2-}" = "" ] ); then

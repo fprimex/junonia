@@ -124,30 +124,6 @@ junonia_bootstrap () {
 
 
 ###
-### Shell compatibility
-###
-
-# Three differences from the other shells are answered here. zsh splits no
-# unquoted parameter, and the values resolved from the spec are handed along as
-# one, so it gets the splitting every other shell does by default. It names $0
-# after the function that is running, which the bootstrap that works out the
-# program's own path depends on having mean the program. The options are set one
-# at a time so a name an older zsh lacks does not cost the others. And it
-# confines a readonly declared inside a function to that function, while the
-# library's globals are established inside functions, so the attribute goes
-# through _junonia_readonly, which makes a global read only without also
-# changing its scope.
-if [ -n "${ZSH_VERSION:-}" ]; then
-  for junonia_zsh_opt in shwordsplit no_function_argzero; do
-    setopt "$junonia_zsh_opt" 2>/dev/null || :
-  done
-  unset junonia_zsh_opt
-  _junonia_readonly () { typeset -gr "$@"; }
-else
-  _junonia_readonly () { readonly "$@"; }
-fi
-
-###
 ### I/O helpers
 ###
 
@@ -693,7 +669,7 @@ junonia_awk_isort='
 '
 
 
-_junonia_readonly JUNONIA_AWKS="
+readonly JUNONIA_AWKS="
 $junonia_awk_hardwrap_line
 $junonia_awk_hardwrap
 $junonia_awk_twocol
@@ -2569,28 +2545,28 @@ junonia_init () {
     return
   fi
 
-  _junonia_readonly JUNONIA_VERSION="1.6.0dev"
+  readonly JUNONIA_VERSION="1.6.0dev"
 
   # Communication control characters (TC1 - TC4)
-  _junonia_readonly JSOH="" # Start of heading    (SOH / TC1 / dec 1)
-  _junonia_readonly JSTX="" # Start of text       (STX / TC2 / dec 2)
-  _junonia_readonly JETX="" # End of text         (ETX / TC3 / dec 3)
-  _junonia_readonly JEOT="" # End of transmission (EOT / TC4 / dec 4)
+  readonly JSOH="" # Start of heading    (SOH / TC1 / dec 1)
+  readonly JSTX="" # Start of text       (STX / TC2 / dec 2)
+  readonly JETX="" # End of text         (ETX / TC3 / dec 3)
+  readonly JEOT="" # End of transmission (EOT / TC4 / dec 4)
 
   # Information Separator control characters (IS1 - IS4)
-  _junonia_readonly JUS="" # Unit   Separator (US / IS1 / dec 31)
-  _junonia_readonly JRS="" # Record Separator (RS / IS2 / dec 30)
-  _junonia_readonly JGS="" # Group  Separator (GS / IS3 / dec 29)
-  _junonia_readonly JFS="" # File   Separator (FS / IS4 / dec 28)
+  readonly JUS="" # Unit   Separator (US / IS1 / dec 31)
+  readonly JRS="" # Record Separator (RS / IS2 / dec 30)
+  readonly JGS="" # Group  Separator (GS / IS3 / dec 29)
+  readonly JFS="" # File   Separator (FS / IS4 / dec 28)
 
   # The separators under the names that are documented for use by programs
   # built on junonia. The short names above are used internally; these are
   # the public names, so that, for example, a program can iterate over the
   # values of a multi-value option with IFS=$JUNONIA_US.
-  _junonia_readonly JUNONIA_GS="$JGS"
-  _junonia_readonly JUNONIA_FS="$JFS"
-  _junonia_readonly JUNONIA_RS="$JRS"
-  _junonia_readonly JUNONIA_US="$JUS"
+  readonly JUNONIA_GS="$JGS"
+  readonly JUNONIA_FS="$JFS"
+  readonly JUNONIA_RS="$JRS"
+  readonly JUNONIA_US="$JUS"
 
   # Use TMPDIR if it is set. If not, set it to /tmp
   if [ -z "$TMPDIR" ]; then
@@ -2607,16 +2583,6 @@ junonia_init () {
   # can be set to a path to avoid the bootstrap process if that path is known
   # in advance, or can be set in advance. Otherwise bootstrapping will be
   # attempted if the function is defined.
-  # A bootstrap copy that ran before this file was sourced resolved $0 to the
-  # name of the function holding it, because that is what zsh does and the
-  # option restoring the usual meaning is not set until the file is read. The
-  # target is dropped when it is not a file, which leaves one given by hand
-  # alone, and the bootstrap below runs against a $0 that means the program.
-  if [ -n "${ZSH_VERSION:-}" ] && [ ! -e "$JUNONIA_TARGET" ]; then
-    JUNONIA_TARGET=
-    JUNONIA_PATH=
-  fi
-
   if [ -z "$JUNONIA_TARGET" ]; then
     if ! junonia_bootstrap; then
       echoerr "failed to bootstrap and init"
@@ -2624,7 +2590,7 @@ junonia_init () {
     fi
   fi
 
-  _junonia_readonly JUNONIA_TARGET
+  readonly JUNONIA_TARGET
 
   if [ -z "$JUNONIA_PATH" ]; then
     # Get the script path, go there, resolve the full path of symlinks with pwd
@@ -2638,19 +2604,19 @@ junonia_init () {
     fi
   fi
 
-  _junonia_readonly JUNONIA_PATH
+  readonly JUNONIA_PATH
 
   # Get the script name by removing the path and any .sh suffix:
-  _junonia_readonly JUNONIA_NAME="$(basename "$JUNONIA_TARGET" .sh)"
-  _junonia_readonly JUNONIA_CAPNAME="$(awk -v n="$JUNONIA_NAME" \
+  readonly JUNONIA_NAME="$(basename "$JUNONIA_TARGET" .sh)"
+  readonly JUNONIA_CAPNAME="$(awk -v n="$JUNONIA_NAME" \
                               'BEGIN{print toupper(n)}')"
 
   # Path to the config dir and file
-  _junonia_readonly _JUNONIA_CONFIGDIR_DEF="$HOME/.$JUNONIA_NAME"
-  _junonia_readonly _JUNONIA_CONFIG_DEF="$_JUNONIA_CONFIGDIR_DEF/${JUNONIA_NAME}rc"
+  readonly _JUNONIA_CONFIGDIR_DEF="$HOME/.$JUNONIA_NAME"
+  readonly _JUNONIA_CONFIG_DEF="$_JUNONIA_CONFIGDIR_DEF/${JUNONIA_NAME}rc"
 
-  _junonia_readonly JUNONIA_CONFIGDIR="${JUNONIA_CONFIGDIR:-"$_JUNONIA_CONFIGDIR_DEF"}"
-  _junonia_readonly JUNONIA_CONFIG="${JUNONIA_CONFIG:-"$_JUNONIA_CONFIG_DEF"}"
+  readonly JUNONIA_CONFIGDIR="${JUNONIA_CONFIGDIR:-"$_JUNONIA_CONFIGDIR_DEF"}"
+  readonly JUNONIA_CONFIG="${JUNONIA_CONFIG:-"$_JUNONIA_CONFIG_DEF"}"
 
   # Remove spaces and slashes from the program version to make a cache
   # directory name.
@@ -2680,11 +2646,11 @@ junonia_init () {
     cache_subpath=/cache
   fi
 
-  _junonia_readonly _JUNONIA_CACHEDIR_DEF="$_JUNONIA_CONFIGDIR_DEF$cache_subpath"
-  _junonia_readonly JUNONIA_CACHEDIR="${JUNONIA_CACHEDIR:-"$_JUNONIA_CACHEDIR_DEF"}"
+  readonly _JUNONIA_CACHEDIR_DEF="$_JUNONIA_CONFIGDIR_DEF$cache_subpath"
+  readonly JUNONIA_CACHEDIR="${JUNONIA_CACHEDIR:-"$_JUNONIA_CACHEDIR_DEF"}"
 
   # Indicate that init has happened
-  _junonia_readonly JUNONIA_INIT=1
+  readonly JUNONIA_INIT=1
 
   # Try to find, source, and init junonia_web
   if ! junonia_webinit 2>/dev/null 1>&2; then
@@ -2846,7 +2812,7 @@ _junonia_set_args () {
   #echodebug "spec:"
   #echodebug "$spec"
 
-  _junonia_readonly JUNONIA_ARGS="$*"
+  readonly JUNONIA_ARGS="$*"
 
   # Spaces and newlines need to be ignored when passing the determined values
   # back. The output will be separated by Record Separator (control character
@@ -3489,9 +3455,6 @@ _junonia_set_args () {
 
 # Perform a search for defaults and run with them if found.
 junonia_run () {
-  # init may have been left to here, for the reason at the bottom of this file
-  junonia_init
-
   echodebug "begin run"
 
   # This file is the program being run, which is a special case.
@@ -3590,7 +3553,6 @@ junonia_runmd () {
 # with the parsed arg values (which may have been changed by the filter
 # function).
 junonia_runmd_filtered () {
-  junonia_init  # may have been left to here; see the note at the bottom of the file
   echodebug "begin runmd filtered"
 
   filter_func="$1"
@@ -3613,7 +3575,7 @@ junonia_runmd_filtered () {
   ret=1
   spec_type=
   if [ -d "$md" ]; then
-    _junonia_readonly JUNONIA_DOCDIR="$md"
+    readonly JUNONIA_DOCDIR="$md"
     spec="${spec:-"$(_junonia_plugin_docs | _junonia_md2spec "$md"/*.md -)"}"
     ret=$?
     spec_type="${cached}dir"
@@ -3648,7 +3610,6 @@ junonia_runspec () {
 # function with the parsed arg values (which may have been changed by the
 # filter function).
 junonia_runspec_filtered () {
-  junonia_init  # may have been left to here; see the note at the bottom of the file
   echodebug "begin runspec filtered"
 
   filter_func="$1"
@@ -3753,20 +3714,12 @@ _junonia_run_final () {
   # that send back $1 and $2, with IFS set to GS.
   IFS=$JGS
 
-  _junonia_readonly JW_JQPROG="$(get_jqprog $arg_vals)"
+  readonly JW_JQPROG="$(get_jqprog $arg_vals)"
   echodebug "JQ_PROG"
   echodebug_raw "$JW_JQPROG"
-  _junonia_readonly JW_JQARGS="$(get_jqargs)"
+  readonly JW_JQARGS="$(get_jqargs)"
 
   args="$(get_args $arg_vals)"
-
-  # The list is built with one separator per value, so there is a separator at
-  # the end. zsh makes a word of the empty text that follows it, where every
-  # other shell ends the list; the word is taken off so that the command
-  # function is not handed an argument of its own.
-  if [ -n "${ZSH_VERSION:-}" ]; then
-    args="${args%"$JRS"}"
-  fi
 
   # Since we are handling values that can be explicitly blank / empty, and
   # values that have whitespace that might need to be preserved, change the IFS
@@ -3793,9 +3746,8 @@ _junonia_exec () {
   # back to normal.
   unset IFS
 
-  # Shifted one at a time and only where there is something to shift: past the
-  # last argument, shift stops dash, ksh and mksh outright, and zsh errors out
-  # even on the plain form.
+  # Shifted one at a time and only where there is something to shift, because a
+  # shift past the last argument stops dash, ksh, and mksh outright.
   filter_func="${1-}"
   if [ $# -gt 0 ]; then shift; fi
 
@@ -3903,11 +3855,11 @@ _junonia_exec () {
   fi
 
   # At this point, all of the following are set and fixed.
-  _junonia_readonly JUNONIA_CMD="$(echo "$func" | sed 's/_/ /g')"
-  _junonia_readonly JUNONIA_FUNC="$(echo "$func" | sed 's/-/_/g')"
-  _junonia_readonly JUNONIA_MD="$md"
-  _junonia_readonly JUNONIA_SPEC_TYPE="$spec_type"
-  _junonia_readonly JUNONIA_SPEC="$spec"
+  readonly JUNONIA_CMD="$(echo "$func" | sed 's/_/ /g')"
+  readonly JUNONIA_FUNC="$(echo "$func" | sed 's/-/_/g')"
+  readonly JUNONIA_MD="$md"
+  readonly JUNONIA_SPEC_TYPE="$spec_type"
+  readonly JUNONIA_SPEC="$spec"
 
   echodebug "JUNONIA_CMD      : $JUNONIA_CMD"
   echodebug "JUNONIA_FUNC     : $JUNONIA_FUNC"
@@ -3927,7 +3879,7 @@ _junonia_exec () {
       else
         echodebug "resulting JSON:"
         echodebug_raw "$JW_JSON"
-        _junonia_readonly JW_JSON
+        readonly JW_JSON
       fi
     else
       echoerr "arguments prefixed with '.' are used for JSON generation"
@@ -3983,15 +3935,7 @@ junonia_setdebug "$JUNONIA_DEBUG"
 # this one runs it will just return. Therefore, for single-file distributed
 # scripts, use an explicit exit statement before the junonia code to return
 # anything other than 0.
-#
-# One case is left to the run functions: while zsh is reading a sourced file $0
-# is that file, so nothing done here can name the program that sourced it, and
-# init would take the library for the program. Init there instead resolves $0
-# where it means the program again.
-case "${ZSH_EVAL_CONTEXT:-}" in
-  *:file*) : ;;
-  *) junonia_init ;;
-esac
+junonia_init
 
 # If the program we are running is called 'junonia', then the base program /
 # this library is being run with just the meta-commands. Yay! Time to run and
