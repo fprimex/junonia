@@ -372,9 +372,17 @@ Run the smoke tests with:
 $ test/smoke.sh
 ```
 
-The suite runs the examples above, then builds a program in a scratch directory and asserts on the exact argument list its command functions receive for every kind of argument: spec defaults, configuration file, environment variables, command line values, booleans, repeatable options, positional parameters, nested subcommands, and the error paths. It also exercises caching, the `config` subcommand, the JSON options, and the web layer. Nothing outside the scratch directory is touched.
+That run is one pass with `/bin/sh` and the `awk` of the machine you are on, which is the quick loop. Nothing outside the scratch directory is touched.
 
-Every combination of shell and AWK runs, which is where the differences between them show up. The shells are
+The suite runs the examples above, then builds a program in a scratch directory and asserts on the exact argument list its command functions receive for every kind of argument: spec defaults, configuration file, environment variables, command line values, booleans, repeatable options, positional parameters, nested subcommands, and the error paths. It also exercises caching, the `config` subcommand, the JSON options, and the web layer.
+
+Before finishing a feature or a release, run the whole matrix of shells and AWKs, which is where the differences between them show up:
+
+```
+$ test/smoke.sh --matrix
+```
+
+The shells are
 
 ```
 sh bash dash ksh mksh yash pdksh busybox ash
@@ -384,7 +392,7 @@ and the AWKs are `awk`, `gawk`, and `mawk`. Whichever `awk` is found first is th
 
 zsh is not on the list. It is not a POSIX shell in the two ways that matter to a library: it splits no unquoted parameter, and `$0` names the running function rather than the script, and the file being read while a file is being sourced, so a program cannot work out its own path from where it was run. junonia is written to the POSIX shell rather than worked around for zsh.
 
-Narrow the matrix with `JUNONIA_TEST_SHELLS` and `JUNONIA_TEST_AWKS`, or run a single combination with `JUNONIA_SMOKE_SHELL` and `JUNONIA_SMOKE_AWK`:
+Narrow the matrix with `JUNONIA_TEST_SHELLS` and `JUNONIA_TEST_AWKS`, which ask for the matrix on their own, or run a single combination with `JUNONIA_SMOKE_SHELL` and `JUNONIA_SMOKE_AWK`:
 
 ```
 $ JUNONIA_TEST_SHELLS='ksh mksh' test/smoke.sh

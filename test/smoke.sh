@@ -15,8 +15,16 @@
 # Part three repeats the interesting cases for a program configured by a spec
 # string instead of Markdown, which takes a different path through junonia.
 #
-# Usage: test/smoke.sh [-v]
-#   -v  also print the output of each failing check
+# Usage: test/smoke.sh [-v] [-m | --matrix]
+#   -v            also print the output of each failing check
+#   -m, --matrix  run once for every shell and awk installed. Without it the
+#                 suite runs once with /bin/sh and this machine's awk, which is
+#                 the fast loop; naming shells or awks in the environment asks
+#                 for the matrix as well.
+#
+#   JUNONIA_TEST_SHELLS / JUNONIA_TEST_AWKS  the matrix, narrowed to these
+#   JUNONIA_SMOKE_SHELL / JUNONIA_SMOKE_AWK  a single combination
+#   JUNONIA_SMOKE_KEEP=1                     leave the scratch directory behind
 #
 # Nothing outside the scratch directory is touched. The HOME, configuration
 # file, and cache directory used by the generated programs all live there.
@@ -25,21 +33,32 @@ set -u
 
 me="$(basename "$0")"
 verbose=0
-[ "${1:-}" = "-v" ] && verbose=1
+matrix=0
+[ -n "${JUNONIA_TEST_SHELLS:-}${JUNONIA_TEST_AWKS:-}" ] && matrix=1
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -v)          verbose=1 ;;
+    -m|--matrix) matrix=1 ;;
+    *) printf '%s: unknown option: %s\n' "$me" "$1" >&2
+       exit 2 ;;
+  esac
+  shift
+done
 
 ###
 ### The matrix: every shell and awk installed
 ###
-### With neither of JUNONIA_SMOKE_SHELL and JUNONIA_SMOKE_AWK set, the suite runs
-### itself once for each combination of shell and awk that is installed, under
-### that shell and with that awk first on PATH. A run with JUNONIA_SMOKE_SHELL
-### set is one cell of that matrix and does not run the matrix again; narrow it
-### with JUNONIA_TEST_SHELLS and JUNONIA_TEST_AWKS.
+### With --matrix, the suite runs itself once for each combination of shell and
+### awk that is installed, under that shell and with that awk first on PATH.
+### JUNONIA_TEST_SHELLS and JUNONIA_TEST_AWKS narrow the two lists. A run with
+### JUNONIA_SMOKE_SHELL set is one cell of the matrix and does not run the
+### matrix again.
 
 shells_default='/bin/sh bash dash ksh mksh yash pdksh busybox ash'
 awks_default='awk gawk mawk'
 
-if [ -z "${JUNONIA_SMOKE_SHELL:-}" ]; then
+if [ "$matrix" = 1 ] && [ -z "${JUNONIA_SMOKE_SHELL:-}" ]; then
   smoke_self="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
   verbose_flag=
   [ "$verbose" = 1 ] && verbose_flag=-v
@@ -75,7 +94,7 @@ if [ -z "${JUNONIA_SMOKE_SHELL:-}" ]; then
       # Unquoted so that `busybox sh` is the two words it has to be.
       # shellcheck disable=SC2086
       if env JUNONIA_SMOKE_SHELL="$shell_run" JUNONIA_SMOKE_AWK="$awk_path" \
-           $shell_run "$smoke_self" $verbose_flag; then
+           JUNONIA_SMOKE_MATRIX=1 $shell_run "$smoke_self" $verbose_flag; then
         combo_ok=$((combo_ok + 1))
       else
         combo_bad=$((combo_bad + 1))
@@ -94,8 +113,9 @@ if [ -z "${JUNONIA_SMOKE_SHELL:-}" ]; then
   exit 0
 fi
 
-# One cell of the matrix, or a direct run of it. This is both the shell the
-# suite itself runs under and the shell the programs it tests run under.
+# One cell of the matrix, or the single run of it that is the default. This
+# shell is both the one the suite runs under and the one the programs it tests
+# run under.
 run_shell="${JUNONIA_SMOKE_SHELL:-/bin/sh}"
 
 testdir="$(cd "$(dirname "$0")" && pwd)"
@@ -129,6 +149,10 @@ if [ -n "${JUNONIA_SMOKE_AWK:-}" ]; then
   PATH="$sandbox/bin:$PATH"
   export PATH
 fi
+
+# The name of the awk under test, not the link that stands in for it in PATH.
+printf '\n%s: %s with %s\n\n' "$me" "$run_shell" \
+  "${JUNONIA_SMOKE_AWK:-"$(command -v awk 2>/dev/null || echo 'no awk on PATH')"}"
 
 n_tests=0
 n_fail=0
@@ -1328,6 +1352,9 @@ check 'config: removed value no longer used' "$BASE" "$out"
 printf '\n'
 if [ $n_fail -eq 0 ]; then
   printf '%s: all %d checks passed\n' "$me" "$n_tests"
+  if [ "${JUNONIA_SMOKE_MATRIX:-}" != 1 ]; then
+    printf 'run with --matrix for every shell and awk installed\n'
+  fi
   exit 0
 fi
 printf 'failed checks:%s\n' "$failures"
