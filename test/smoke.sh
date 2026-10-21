@@ -1120,8 +1120,9 @@ MDEOF
   mkdir -p "$wapp/cmd"
   printf '%s\n' 'wprog_thing () {' '  echo "callback saw: $1"' '}' \
     > "$wapp/cmd/wprog_thing.sh"
-  printf '%s\n' 'wprog_create () {' '  echo "created: $1"' '}' \
-    > "$wapp/cmd/wprog_create.sh"
+
+  # wprog create is left without one on purpose: most endpoints have no
+  # callback, and looking for one must not report the absence as an error.
 
   chmod +x "$wapp/wprog"
 
@@ -1162,7 +1163,9 @@ MDEOF
     WPROG_STUB="$sandbox/stub/create" $run_shell ./wprog create
   check_contains 'web: a documented POST endpoint reaches curl' \
     "$(cat "$sandbox/stub/create" 2>/dev/null)" 'http://junonia.invalid/things'
-  check 'web: a documented POST endpoint runs clean' '0' \
+  check_contains 'web: an endpoint with no callback still answers' "$out" \
+    '"id":"42"'
+  check 'web: an endpoint with no callback is not an error' '0' \
     "$(printf '%s\n' "$out" | grep -c '\[ERROR\]')"
 else
   printf '# jq or curl not installed, skipped web layer checks\n'

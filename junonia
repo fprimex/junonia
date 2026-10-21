@@ -2001,8 +2001,11 @@ junonia_cache_file () {
   fi
 }
 
-# Try to find and source a given function name
-_junonia_load_func () {
+# Find and source a function, saying nothing when there is nothing to find. A
+# caller that is looking for something optional wants the answer rather than a
+# report of the thing that is not there. A file found but unusable is still
+# reported, because that is not the same as having no file.
+_junonia_find_func () {
   # Already defined, as when every command is in the top level script: no file
   # search has run, so no interpreter was picked and this shell runs it.
   if command -v "$1" >/dev/null 2>&1; then
@@ -2010,7 +2013,13 @@ _junonia_load_func () {
     return 0
   fi
 
-  if _junonia_func_search "$JUNONIA_PATH" "$1"; then
+  _junonia_func_search "$JUNONIA_PATH" "$1"
+}
+
+# Find and source the function that implements a command, which is an error to
+# be missing: the documentation named it.
+_junonia_load_func () {
+  if _junonia_find_func "$1"; then
     return 0
   fi
 

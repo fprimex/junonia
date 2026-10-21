@@ -611,7 +611,9 @@ junonia_web () {
 
   echodebug "final query: $query"
 
-  if _junonia_load_func $func_name; then
+  # The callback is optional, so this search must not report the common case of
+  # a command that has no implementation of its own.
+  if _junonia_find_func "$func_name"; then
     echodebug "located callback $func_name"
     cb=$func_name
   elif command -v ${JUNONIA_NAME}_web_callback >/dev/null 2>&1; then
