@@ -1018,9 +1018,13 @@ if command -v jq >/dev/null 2>&1 && command -v curl >/dev/null 2>&1; then
   # junonia looks for junonia_web beside the program.
   cp "$root/junonia_web" "$wapp/junonia_web"
 
-  # A curl that records its arguments rather than making a request.
-  printf '#!/bin/sh\nprintf "%%s\\n" "$*" >> "$WPROG_STUB"\n' \
-    > "$sandbox/stub/curl"
+  # A curl that records its arguments rather than making a request, and answers
+  # the way curl does with the -w format junonia asks for.
+  cat > "$sandbox/stub/curl" <<'STUBEOF'
+#!/bin/sh
+printf '%s\n' "$*" >> "$WPROG_STUB"
+printf '{"id":"42"}\nhttp_code: 200\n'
+STUBEOF
   chmod +x "$sandbox/stub/curl"
   printf 'header = "X-Token: stub"\n' > "$sandbox/curlrc"
 
@@ -1054,6 +1058,15 @@ wprog () {
   rm -f "$WPROG_STUB"
   junonia_request http://junonia.invalid/ >/dev/null 2>&1
   [ -f "$WPROG_STUB" ] && sed 's/^/curl saw: /' "$WPROG_STUB"
+
+  # Calls with arguments missing have to come back as junonia errors. The shells
+  # that stop at a shift past the last argument used to end the run here with a
+  # shell complaint instead, and the run continues to the done line below.
+  short="$(junonia_request POST 2>&1)"
+  echo "short request: $short"
+  short="$(junonia_web only two 2>&1)"
+  echo "short web: $short"
+  echo 'made it to the end'
 }
 junonia_bootstrap () {
   JUNONIA_TARGET="$0"
@@ -1064,6 +1077,52 @@ junonia_bootstrap
 . "$JUNONIA_ROOT/junonia"
 junonia_run "$@"
 WEOF
+  # A documented REST command, which is the path through junonia_web: the five
+  # words of the request, the {PARAM} substitution, and the query built from
+  # whatever arguments are left, none in this case.
+  cat > "$wapp/doc/wprog_thing.md" <<'MDEOF'
+## `wprog thing`
+
+Fetch a thing.
+
+### Synopsis
+
+    wprog thing ID
+
+### REST endpoint
+
+    GET http://junonia.invalid/things/{ID}
+
+### Positional parameters
+
+* `ID`
+
+The thing to fetch.
+MDEOF
+
+  cat > "$wapp/doc/wprog_create.md" <<'MDEOF'
+## `wprog create`
+
+Create a thing.
+
+### Synopsis
+
+    wprog create
+
+### REST endpoint
+
+    POST http://junonia.invalid/things
+MDEOF
+
+  # A documented endpoint needs no implementation of its own. If a function of
+  # the command name exists, junonia_web uses it as a callback on the response,
+  # which is what these are.
+  mkdir -p "$wapp/cmd"
+  printf '%s\n' 'wprog_thing () {' '  echo "callback saw: $1"' '}' \
+    > "$wapp/cmd/wprog_thing.sh"
+  printf '%s\n' 'wprog_create () {' '  echo "created: $1"' '}' \
+    > "$wapp/cmd/wprog_create.sh"
+
   chmod +x "$wapp/wprog"
 
   clear_prog_env
@@ -1078,6 +1137,33 @@ WEOF
     "$out" 'assign=ok'
   check_contains 'web: the curlrc reaches curl' "$out" \
     "curl saw: -s -w \\nhttp_code: %{http_code}\\n --config $sandbox/curlrc"
+
+  check_contains 'web: a request with too few arguments is a junonia error' \
+    "$out" 'short request: [ERROR] no url was provided'
+  check_contains 'web: junonia_web with too few arguments is a junonia error' \
+    "$out" 'short web: [ERROR] junonia_web takes a function name'
+  check_contains 'web: a short call does not end the run' "$out" \
+    'made it to the end'
+
+  # The endpoint in the documentation, with the {ID} filled in from the
+  # positional parameter and nothing left over for the query string.
+  # shellcheck disable=SC2086
+  run_in "$wapp" env PATH="$sandbox/stub:$PATH" \
+    WPROG_STUB="$sandbox/stub/thing" $run_shell ./wprog thing 42
+  check_contains 'web: a documented GET endpoint reaches curl' \
+    "$(cat "$sandbox/stub/thing" 2>/dev/null)" 'http://junonia.invalid/things/42'
+  check_contains 'web: a function of the command name is the callback' "$out" \
+    'callback saw: {"id":"42"}'
+  check 'web: a documented GET endpoint runs clean' '0' \
+    "$(printf '%s\n' "$out" | grep -c '\[ERROR\]')"
+
+  # shellcheck disable=SC2086
+  run_in "$wapp" env PATH="$sandbox/stub:$PATH" \
+    WPROG_STUB="$sandbox/stub/create" $run_shell ./wprog create
+  check_contains 'web: a documented POST endpoint reaches curl' \
+    "$(cat "$sandbox/stub/create" 2>/dev/null)" 'http://junonia.invalid/things'
+  check 'web: a documented POST endpoint runs clean' '0' \
+    "$(printf '%s\n' "$out" | grep -c '\[ERROR\]')"
 else
   printf '# jq or curl not installed, skipped web layer checks\n'
 fi

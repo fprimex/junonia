@@ -498,6 +498,15 @@ junonia_format_jtable () {
 }
 
 junonia_web () {
+  # The five words of a web call are a unit: _junonia_exec checks them when it
+  # unpacks what the awk built, and this is here for a program that calls
+  # junonia_web itself.
+  if [ $# -lt 5 ]; then
+    echoerr "junonia_web takes a function name, method, content type, url," \
+            "and output template"
+    return 1
+  fi
+
   func_name="$1"
   shift
   method="$1"
@@ -575,8 +584,9 @@ junonia_web () {
 
   echodebug "final url: $url"
 
-  json="$1"
-  shift
+  # A request whose parameters all came from the url has nothing left here.
+  json="${1-}"
+  if [ $# -gt 0 ]; then shift; fi
   echodebug "  json: $json"
 
   echodebug "remaining arguments ($#):"
@@ -586,7 +596,7 @@ junonia_web () {
   while [ $i -le $# ]; do
     query="$query&$1"
     i=$(( $i+1 ))
-    shift
+    if [ $# -gt 0 ]; then shift; fi
   done
   echodebug "remaining arguments ($#):"
   echodebug_raw $@
@@ -787,8 +797,9 @@ junonia_request () {
       POST|PUT|PATCH)
         _method="$1"
         shift
-        _payload="$1"
-        shift
+        # The payload is the last thing a short call has, if it is there at all.
+        _payload="${1-}"
+        if [ $# -gt 0 ]; then shift; fi
         if [ -z "$_payload" ]; then
           echodebug "WARNING: EMPTY PAYLOAD"
           # Not going to error. I have seen weirder things than requiring
@@ -803,10 +814,10 @@ junonia_request () {
     esac
 
     if [ -z "$_url" ]; then
-      _content_t="$1"
-      shift
+      _content_t="${1-}"
+      if [ $# -gt 0 ]; then shift; fi
 
-      if [ -z "$1" ]; then
+      if [ -z "${1-}" ]; then
         echoerr "no url was provided"
         return 1
       else

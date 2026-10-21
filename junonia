@@ -3168,6 +3168,17 @@ junonia_runmd () {
 # with the parsed arg values (which may have been changed by the filter
 # function).
 junonia_runmd_filtered () {
+  # The filter function may be empty, but the word has to be there, because
+  # everything below reads position by position and hands the same positions on
+  # to _junonia_run_final. A shift past the last argument stops some shells with
+  # a shell error, which is a poor answer to give a program that called with too
+  # few words.
+  if [ $# -lt 2 ]; then
+    echoerr "junonia_runmd_filtered takes a filter function, which may be"
+    echoerr "empty, and the Markdown to build the argument spec from"
+    return 1
+  fi
+
   echodebug "begin runmd filtered"
 
   filter_func="$1"
@@ -3225,6 +3236,14 @@ junonia_runspec () {
 # function with the parsed arg values (which may have been changed by the
 # filter function).
 junonia_runspec_filtered () {
+  # See the note in junonia_runmd_filtered. The function to run arrives with the
+  # spec, because _junonia_run_final takes four words of its own.
+  if [ $# -lt 3 ]; then
+    echoerr "junonia_runspec_filtered takes a filter function, which may be"
+    echoerr "empty, the argument spec, and the function to run"
+    return 1
+  fi
+
   echodebug "begin runspec filtered"
 
   filter_func="$1"
@@ -3381,6 +3400,15 @@ _junonia_exec () {
   if [ "$func" = "junonia_web" ]; then
     # Need to pop these off and put them back so the filter function,
     # if any, can correctly operate on the right options.
+    #
+    # The awk that assembled these emits all five with the function name, so a
+    # short list here means the library is out of step with itself. Saying so
+    # is kinder than what the shells make of a shift past the last argument.
+    if [ $# -lt 5 ]; then
+      echoerr "no web request arguments were built for ${1-}"
+      return 1
+    fi
+
     jw_func="$1"
     shift
     jw_method="$1"
