@@ -23,7 +23,6 @@ The junonia library also provides:
 * cache file function and command for management
 * awk utility scripts for output, formatting, and more
 * shell utility scripts for output, formatting, and more
-* plugin support and management (still under development)
 
 If the program implementation follows the junonia conventions for project layout, then all that is required, typically, is to write Markdown, then implement each subcommand as a shell function that will receive argument values in the order defined in the Markdown, and finally `junonia_bootstrap; . $JUNONIA_PATH/path/to/junonia; junonia_run "$@"`
 
@@ -168,7 +167,6 @@ SUBCOMMANDS
   help            Print information about program and subcommand usage
   config          Display or edit the `prog` config file
   cache           Generate or clear meta-information cache
-  plugin          Manage prog shell plugins and programs
   version         Display program version
 ```
 

@@ -1235,9 +1235,6 @@ check_contains 'help: metacommand description' "$out" \
 run_app help version
 check_contains 'help: metacommand option' "$out" '-junonia'
 
-run_app help plugin install
-check_contains 'help: metacommand two levels down' "$out" 'prog plugin install --'
-
 run_app help
 check 'help: metacommands are listed once' '1' \
   "$(printf '%s\n' "$out" | grep -c '^  config')"

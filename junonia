@@ -1696,19 +1696,6 @@ _junonia_cmds='  help
   config
   cache
     -clear
-  plugin
-    list
-    search
-      TERM
-    info
-      NAME
-    install
-      NAME
-    uninstall
-      NAME
-    upgrade
-      NAME
-    update
   version
     -junonia'
 
@@ -1724,7 +1711,7 @@ Bourne shell scripting framework and program
 
 ### Description
 
-Junonia is a Bourne shell framework for writing scripts. It is also a standalone program that can be used to retrieve and execute other plugins and programs.
+Junonia is a Bourne shell framework for writing scripts. Run as a program in its own right it provides the meta-commands that every junonia program has.
 
 EOF
 }
@@ -1786,164 +1773,6 @@ Remove the cache directory. Note that a subsequent run of \`cache\` will result 
 EOF
 }
 
-_junonia_plugin_md () {
-cat << EOF
-## \`$JUNONIA_NAME plugin\`
-
-Manage $JUNONIA_NAME shell plugins and programs
-
-### Synopsis
-
-    $JUNONIA_NAME plugin
-
-### Description
-
-Shell plugins and programs can be stored in the user config directory. Plugins can add subcommands to programs or provide new functions that can be used by existing or new plugins.
-
-EOF
-}
-
-_junonia_plugin_list_md () {
-cat << EOF
-## \`$JUNONIA_NAME plugin list\`
-
-Show installed plugins
-
-### Synopsis
-
-    $JUNONIA_NAME plugin list
-
-EOF
-}
-
-_junonia_plugin_search_md () {
-cat << EOF
-## \`$JUNONIA_NAME plugin search\`
-
-Search the plugin registry for matches
-
-### Synopsis
-
-    $JUNONIA_NAME plugin search TERM
-
-### Description
-
-The plugin registry contains information about plugins and programs that can be retrieved for installation. The listings include authors, plugin names, tags, and short descriptions. The \`TERM\` supplied is passed to an \`awk\` script for matching, and matches are printed for any match found in the information.
-
-### Positional parameters
-
-* \`TERM\`
-
-Search term to match on author, package name, tags, and descriptions. The term can be a simple word or any regular expression that is valid in AWK.
-
-EOF
-}
-
-_junonia_plugin_info_md () {
-cat << EOF
-## \`$JUNONIA_NAME plugin info\`
-
-Display a plugin or program summary
-
-### Synopsis
-
-    $JUNONIA_NAME plugin info NAME
-
-### Description
-
-Info displays the registry information about a package.
-
-### Positional parameters
-
-* \`NAME\`
-
-Exact name of the package in author/name form.
-
-EOF
-}
-
-_junonia_plugin_install_md () {
-cat << EOF
-## \`$JUNONIA_NAME plugin install\`
-
-Retrieve and install plugins and programs
-
-### Synopsis
-
-    $JUNONIA_NAME plugin install NAME
-
-### Description
-
-Install searches for, downloads, and extracts plugins and programs to the user plugin directory in the user config directory. If the item being installed is a program, the program script will be symlinked in the user bin directory in the user config directory.
-
-### Positional parameters
-
-* \`NAME\`
-
-Plugin or program name in author/name form
-
-EOF
-}
-
-_junonia_plugin_uninstall_md () {
-cat << EOF
-## \`$JUNONIA_NAME plugin uninstall\`
-
-Remove an installed plugin or program
-
-### Synopsis
-
-    $JUNONIA_NAME plugin uninstall NAME
-
-### Description
-
-Uninstall removes the specified plugin or program by deleting the directory. If the item is a program, the symlink in the user bin directory in the user config directory is also deleted.
-
-### Positional parameters
-
-* \`NAME\`
-
-Plugin or program name in author/name form
-
-EOF
-}
-
-_junonia_plugin_upgrade_md () {
-cat << EOF
-## \`$JUNONIA_NAME plugin upgrade\`
-
-Search for and retrieve a new plugin or program version
-
-### Synopsis
-
-    $JUNONIA_NAME plugin upgrade NAME
-
-### Description
-
-Upgrade searches the registry for a version newer than the one currently installed. Installation is performed by downloading the newer version, uninstalling the existing version, then installing the downloaded version.
-
-### Positional parameters
-
-* \`NAME\`
-
-Plugin or program name in author/name form
-
-EOF
-}
-
-_junonia_plugin_update_md () {
-cat << EOF
-## \`$JUNONIA_NAME plugin update\`
-
-Update the plugin registry cache
-
-### Synopsis
-
-    $JUNONIA_NAME plugin update
-
-EOF
-}
-
 _junonia_version_md () {
 cat << EOF
 ## \`$JUNONIA_NAME version\`
@@ -1967,14 +1796,6 @@ _junonia_mds () {
 _junonia_help_md
 _junonia_config_md
 _junonia_cache_md
-_junonia_plugin_md
-_junonia_plugin_list_md
-_junonia_plugin_search_md
-_junonia_plugin_info_md
-_junonia_plugin_install_md
-_junonia_plugin_uninstall_md
-_junonia_plugin_upgrade_md
-_junonia_plugin_update_md
 _junonia_version_md
 _junonia_web_mds 2>/dev/null
 }
@@ -2023,7 +1844,6 @@ _junonia_help () {
       mds="$(for f in "$JUNONIA_MD"/*.md; do cat "$f"; echo; done)"
       helptext="$( {
                      echo "$mds"
-                     _junonia_plugin_docs
                      _junonia_metacmd_docs "$cmd"
                    } | _junonia_md2help "$cmd")"
       if [ "$JUNONIA_NAME" = "$cmd" ]; then
@@ -2033,7 +1853,6 @@ _junonia_help () {
     file)
       helptext="$( {
                      cat "$JUNONIA_MD"
-                     _junonia_plugin_docs
                      _junonia_metacmd_docs "$cmd"
                    } | _junonia_md2help "$cmd")"
       if [ "$JUNONIA_NAME" = "$cmd" ]; then
@@ -2043,7 +1862,6 @@ _junonia_help () {
     md_string)
       helptext="$( {
                      echo "$JUNONIA_MD"
-                     _junonia_plugin_docs
                      _junonia_metacmd_docs "$cmd"
                    } | _junonia_md2help "$cmd")"
       if [ "$JUNONIA_NAME" = "$cmd" ]; then
@@ -2118,157 +1936,6 @@ _junonia_cache () {
   fi
 }
 
-_junonia_plugin () {
-  exec "$0" plugin help
-}
-
-_junonia_plugin_list () {
-  if [ -d "$JUNONIA_CONFIGDIR/plugins" ]; then
-    cd "$JUNONIA_CONFIGDIR/plugins"
-    for d in */; do
-      if ! echo "$d" | grep -q '\.'; then
-        echo "${d%/}"
-      else
-        for siteorg in "${d%/}"/*/; do
-          for orgplugin in "${siteorg%/}"/*/; do
-            echo "${orgplugin%/}"
-          done
-        done
-      fi
-    done
-  fi
-}
-
-_junonia_plugin_search () {
-  term="$1"
-
-  if [ -z "$term" ]; then
-    echoerr "a search term is required"
-  fi
-
-  if ! reg="$(_junonia_get_registry)"; then
-    echoerr "registry not available"
-    return 1
-  fi
-
-  awk_prog='
-    $0 ~ s      { m     = 1  }
-    NR % 3 == 1 { info  = $0 }
-    NR % 3 == 2 { descr = $0 }
-    NR % 3 == 0 {
-      if(m) {
-        print info
-        print descr
-      }
-      m = 0
-    }
-  '
-  echo "$reg" | awk -v s="$term" "$awk_prog"
-}
-
-_junonia_plugin_info () {
-  plugin_name="$1"
-
-  if ! reg="$(_junonia_get_registry)"; then
-    echoerr "registry not available"
-    return 1
-  fi
-
-  awk_prog='
-    NR % 3 == 1 {
-      info  = $0
-      n = split($1, namea, "/")
-    }
-    NR % 3 == 2 {
-      if(namea[2] == name || namea[3] == name ||
-         namea[2] "/" namea[3] == name) {
-        print info
-        print $0
-        print ""
-      }
-    }
-  '
-  echo "$reg" | awk -v name="$plugin_name" "$awk_prog"
-}
-
-_junonia_plugin_install () {
-  plugin_name="$1"
-
-  if ! command -v git >/dev/null 2>&1; then
-    echoerr "git is required for installs (currently)"
-    return 1
-  fi
-
-  if ! reg="$(_junonia_get_registry)"; then
-    echoerr "registry not available"
-    return 1
-  fi
-
-  awk_prog='
-    NR % 3 == 1 {
-      n = split($1, namea, "/")
-      if(namea[2] "/" namea[3] == name) {
-        print $1
-        exit
-      }
-    }
-  '
-
-  repo="$(echo "$reg" | awk -v name="$plugin_name" "$awk_prog")"
-  plugindir="$JUNONIA_CONFIGDIR/plugins/$repo"
-
-  mkdir -p "$plugindir"
-  cd "$plugindir"
-  git clone "https://$repo.git" .
-
-  echo "installed $plugin_name to:"
-  echo "$plugindir"
-}
-
-_junonia_plugin_uninstall () {
-  plugin_name="$1"
-  plugindir="$JUNONIA_CONFIGDIR/plugins/github.com/$name"
-
-  if ! echo "$plugin_name" | awk -F '/' 'NF == 2 { exit 0 } { exit 1 }'; then
-    echoerr "plugin name should be of the form org/repo"
-    return 1
-  fi
-
-  if echo "$plugindir" | grep -Eq '\.\.'; then
-    echoerr "plugin path cannot contain relative path entries '..'"
-    return 1
-  fi
-
-  if [ -d "$plugindir" ]; then
-    cd "$JUNONIA_CONFIGDIR/plugins/github.com"
-    rm -rf "$name"
-  fi
-}
-
-_junonia_plugin_upgrade () {
-  plugin_name="$1"
-  plugindir="$JUNONIA_CONFIGDIR/plugins/github.com/$name"
-
-  if ! echo "$plugin_name" | awk -F '/' 'NF == 2 { exit 0 } { exit 1 }'; then
-    echoerr "plugin name should be of the form org/repo"
-    return 1
-  fi
-
-  if [ -d "$plugindir" ]; then
-    cd "$(dirname "$plugindir")"
-    git pull
-  fi
-}
-
-_junonia_plugin_update () {
-  reg_file="$JUNONIA_CACHEDIR/${JUNONIA_NAME}_registry"
-  if [ -f "$reg_file" ]; then
-    rm -f "$reg_file"
-  fi
-
-  _junonia_get_registry >/dev/null
-}
-
 _junonia_version () {
   if command -v ${JUNONIA_NAME}_version >/dev/null 2>&1; then
     ver="$JUNONIA_NAME $(${JUNONIA_NAME}_version)"
@@ -2296,14 +1963,6 @@ _junonia_normalize_func () {
   # Check for meta-commands
   for f in ${JUNONIA_NAME}_config \
            ${JUNONIA_NAME}_cache \
-           ${JUNONIA_NAME}_plugin \
-           ${JUNONIA_NAME}_plugin_list \
-           ${JUNONIA_NAME}_plugin_search \
-           ${JUNONIA_NAME}_plugin_info \
-           ${JUNONIA_NAME}_plugin_install \
-           ${JUNONIA_NAME}_plugin_uninstall \
-           ${JUNONIA_NAME}_plugin_upgrade \
-           ${JUNONIA_NAME}_plugin_update \
            ${JUNONIA_NAME}_version; do
     if [ "$1" = "$f" ]; then
       echo _junonia${1#$JUNONIA_NAME}
@@ -2342,43 +2001,6 @@ junonia_cache_file () {
   fi
 }
 
-_junonia_get_registry () {
-  reg_file="$JUNONIA_CACHEDIR/${JUNONIA_NAME}_registry"
-
-  if [ -f "$reg_file"        ] &&
-     [ "$JUNONIA_CACHE" != 0 ]; then
-    cat "$reg_file"
-  else
-    if ! command -v curl >/dev/null 2>&1; then
-      echoerr "unable to get plugin registry: curl not found"
-      return 1
-    fi
-
-    if ! command -v ${JUNONIA_NAME}_registry; then
-      echoerr "unable to get plugin registry: no registry info available"
-      return 1
-    fi
-
-    reg="$(curl -s ${JUNONIA_NAME}_registry)"
-    junonia_cache_file "$reg_file" "$reg"
-  fi
-}
-
-_junonia_plugin_docs () {
-  for plugin in $(_junonia_plugin_list); do
-    pname="$(basename "$plugin")"
-    plugindir="$JUNONIA_CONFIGDIR/plugins/$plugin"
-    for docdir in "$plugindir/$name/usr/share/doc/$pname" \
-                  "$plugindir/docs" \
-                  "$plugindir/doc" \
-                  "$plugindir"; do
-      if ls "$docdir"/*.md >/dev/null 2>&1; then
-        cat "$docdir"/*.md
-      fi
-    done
-  done
-}
-
 # Try to find and source a given function name
 _junonia_load_func () {
   # Already defined, as when every command is in the top level script: no file
@@ -2391,13 +2013,6 @@ _junonia_load_func () {
   if _junonia_func_search "$JUNONIA_PATH" "$1"; then
     return 0
   fi
-
-  for plugin in $(_junonia_plugin_list); do
-    plugindir="$JUNONIA_CONFIGDIR/plugins/$plugin"
-    if _junonia_func_search "$plugindir" "$1"; then
-      return 0
-    fi
-  done
 
   echoerr "command not found: $1"
   return 1
@@ -3576,15 +3191,15 @@ junonia_runmd_filtered () {
   spec_type=
   if [ -d "$md" ]; then
     readonly JUNONIA_DOCDIR="$md"
-    spec="${spec:-"$(_junonia_plugin_docs | _junonia_md2spec "$md"/*.md -)"}"
+    spec="${spec:-"$(_junonia_md2spec "$md"/*.md -)"}"
     ret=$?
     spec_type="${cached}dir"
   elif [ -f "$md" ]; then
-    spec="${spec:-"$(_junonia_plugin_docs | _junonia_md2spec "$md" -)"}"
+    spec="${spec:-"$(_junonia_md2spec "$md" -)"}"
     ret=$?
     spec_type="${cached}file"
   elif [ "$(echo "$md" | wc -l)" -gt 1 ]; then
-    spec="${spec:-"$( ( echo "$md"; _junonia_plugin_docs ) | _junonia_md2spec "" -)"}"
+    spec="${spec:-"$(echo "$md" | _junonia_md2spec "" -)"}"
     ret=$?
     spec_type="${cached}md_string"
   fi
@@ -3938,8 +3553,7 @@ junonia_setdebug "$JUNONIA_DEBUG"
 junonia_init
 
 # If the program we are running is called 'junonia', then the base program /
-# this library is being run with just the meta-commands. Yay! Time to run and
-# probably go get some plugins!
+# this library is being run with just the meta-commands.
 if [ "$JUNONIA_NAME" = "junonia" ]; then
   junonia_run "$@"
 fi
