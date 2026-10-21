@@ -591,22 +591,37 @@ junonia_web () {
 
   echodebug "remaining arguments ($#):"
   echodebug_raw $@
-  i=0
+
+  # What is left over is a query parameter, the options having arrived as
+  # name=value. They join each other with '&', and the whole thing takes
+  # whichever separator the url does not already have: a url from the
+  # documentation may carry its own query, and a url with nothing to add gets
+  # neither separator, so a request does not go out as /things/42?.
   query=
-  while [ $i -le $# ]; do
-    query="$query&$1"
-    i=$(( $i+1 ))
-    if [ $# -gt 0 ]; then shift; fi
+  while [ $# -gt 0 ]; do
+    if [ -n "$1" ]; then
+      if [ -n "$query" ]; then
+        query="$query&$1"
+      else
+        query="$1"
+      fi
+    fi
+    shift
   done
-  echodebug "remaining arguments ($#):"
-  echodebug_raw $@
 
   if [ -n "$JW_ADDL_OPTIONS" ]; then
-    query="$query&$JW_ADDL_OPTIONS"
+    if [ -n "$query" ]; then
+      query="$query&$JW_ADDL_OPTIONS"
+    else
+      query="$JW_ADDL_OPTIONS"
+    fi
   fi
 
   if [ -n "$query" ]; then
-    query="?${query#?}"
+    case "$url" in
+      *\?*) query="&$query" ;;
+      *)    query="?$query" ;;
+    esac
   fi
 
   echodebug "final query: $query"

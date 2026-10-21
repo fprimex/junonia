@@ -1114,6 +1114,49 @@ Create a thing.
     POST http://junonia.invalid/things
 MDEOF
 
+  # Endpoints for the separators of a query string: one url with no query of its
+  # own, one with a query already in the documentation. Each takes an option,
+  # which reaches junonia_web as name=value.
+  cat > "$wapp/doc/wprog_search.md" <<'MDEOF'
+## `wprog search`
+
+Search things.
+
+### Synopsis
+
+    wprog search [OPTIONS]
+
+### REST endpoint
+
+    GET http://junonia.invalid/search
+
+### Options
+
+* `-tag TAG`
+
+A tag to search for.
+MDEOF
+
+  cat > "$wapp/doc/wprog_versioned.md" <<'MDEOF'
+## `wprog versioned`
+
+Search things in a versioned api.
+
+### Synopsis
+
+    wprog versioned [OPTIONS]
+
+### REST endpoint
+
+    GET http://junonia.invalid/versioned?api=2
+
+### Options
+
+* `-tag TAG`
+
+A tag to search for.
+MDEOF
+
   # A documented endpoint needs no implementation of its own. If a function of
   # the command name exists, junonia_web uses it as a callback on the response,
   # which is what these are.
@@ -1146,13 +1189,28 @@ MDEOF
   check_contains 'web: a short call does not end the run' "$out" \
     'made it to the end'
 
+  # The url curl was handed, which is what the separators below are about.
+  curl_url() {
+    grep -o 'http://[^ ]*' "$1" 2>/dev/null | head -1
+  }
+
+  # Ask for a command to run, and report the url it requested. Extra words
+  # before the command name become environment, as in wprog_url FOO=bar search.
+  wprog_url() {
+    stub="$sandbox/stub/url"
+    rm -f "$stub"
+    # shellcheck disable=SC2086
+    run_in "$wapp" env PATH="$sandbox/stub:$PATH" WPROG_STUB="$stub" "$@"
+    curl_url "$stub"
+  }
+
   # The endpoint in the documentation, with the {ID} filled in from the
   # positional parameter and nothing left over for the query string.
   # shellcheck disable=SC2086
   run_in "$wapp" env PATH="$sandbox/stub:$PATH" \
     WPROG_STUB="$sandbox/stub/thing" $run_shell ./wprog thing 42
-  check_contains 'web: a documented GET endpoint reaches curl' \
-    "$(cat "$sandbox/stub/thing" 2>/dev/null)" 'http://junonia.invalid/things/42'
+  check 'web: a documented GET endpoint reaches curl' \
+    'http://junonia.invalid/things/42' "$(curl_url "$sandbox/stub/thing")"
   check_contains 'web: a function of the command name is the callback' "$out" \
     'callback saw: {"id":"42"}'
   check 'web: a documented GET endpoint runs clean' '0' \
@@ -1161,12 +1219,42 @@ MDEOF
   # shellcheck disable=SC2086
   run_in "$wapp" env PATH="$sandbox/stub:$PATH" \
     WPROG_STUB="$sandbox/stub/create" $run_shell ./wprog create
-  check_contains 'web: a documented POST endpoint reaches curl' \
-    "$(cat "$sandbox/stub/create" 2>/dev/null)" 'http://junonia.invalid/things'
+  check 'web: a documented POST endpoint reaches curl' \
+    'http://junonia.invalid/things' "$(curl_url "$sandbox/stub/create")"
   check_contains 'web: an endpoint with no callback still answers' "$out" \
     '"id":"42"'
   check 'web: an endpoint with no callback is not an error' '0' \
     "$(printf '%s\n' "$out" | grep -c '\[ERROR\]')"
+
+  ### The separators of a query string
+
+  # A url with nothing to add takes no separator at all, which used to come out
+  # as /things/42?. Options of a web command arrive as name=value whether they
+  # were given or not, so the empty value below is the documented option not
+  # supplied rather than an artifact of the joining.
+  check 'web: an option becomes a query parameter' \
+    'http://junonia.invalid/search?tag=blue' \
+    "$(wprog_url $run_shell ./wprog search -tag blue)"
+  check 'web: an option that was not given is still a parameter' \
+    'http://junonia.invalid/search?tag=' \
+    "$(wprog_url $run_shell ./wprog search)"
+
+  # A documented url may carry its own query, and then the parameters join it
+  # with & rather than starting a second one with ?.
+  check 'web: a url with its own query joins on &' \
+    'http://junonia.invalid/versioned?api=2&tag=blue' \
+    "$(wprog_url $run_shell ./wprog versioned -tag blue)"
+  check 'web: a url with its own query is left alone when there is nothing to add' \
+    'http://junonia.invalid/versioned?api=2&tag=' \
+    "$(wprog_url $run_shell ./wprog versioned)"
+
+  # JW_ADDL_OPTIONS joins the parameters rather than replacing them.
+  check 'web: JW_ADDL_OPTIONS joins what was asked for' \
+    'http://junonia.invalid/search?tag=blue&preset=stub' \
+    "$(wprog_url JW_ADDL_OPTIONS=preset=stub $run_shell ./wprog search -tag blue)"
+  check 'web: JW_ADDL_OPTIONS alone starts the query' \
+    'http://junonia.invalid/search?tag=&preset=stub' \
+    "$(wprog_url JW_ADDL_OPTIONS=preset=stub $run_shell ./wprog search)"
 else
   printf '# jq or curl not installed, skipped web layer checks\n'
 fi
