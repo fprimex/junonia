@@ -289,6 +289,20 @@ check 'run_from_defaults: nested subcommand' \
 -bool2:      1
 -sub11-opt1: ' "$out"
 
+# The documents are read in an order that is part of the argument spec, not a
+# matter of the machine's collation: a parent has to be read before what is
+# nested under it. LC_ALL is the one that used to get this wrong, because it
+# overrules the LC_COLLATE junonia exports.
+# shellcheck disable=SC2086
+run_in "$root/examples/run_from_defaults" \
+  env LC_ALL=en_US.UTF-8 $run_shell ./prog sub1 sub11
+check 'run_from_defaults: nested subcommand with LC_ALL changed' \
+  '-shared-arg: shared_default
+-sub1-opt1:  
+-bool1:      
+-bool2:      1
+-sub11-opt1: ' "$out"
+
 run_prog "$root/examples/run_from_defaults" ./prog sub2 hello
 check 'run_from_defaults: positional parameter' \
   '-shared-arg: shared_default
@@ -1460,6 +1474,30 @@ check 'nested subcommand runs' \
 run_app nest deep -nest-opt n -deep-opt v
 check 'nested subcommand runs with parent option' \
   'shared=[shared_default] nest_opt=[n] deep_opt=[v]' "$out"
+
+run_app LC_ALL=en_US.UTF-8 nest deep -nest-opt n -deep-opt v
+check 'nested subcommand runs with LC_ALL changed' \
+  'shared=[shared_default] nest_opt=[n] deep_opt=[v]' "$out"
+
+# The document list on its own, since that is where the order comes from. The
+# library is sourced with JUNONIA_TARGET given, so init does not take it for the
+# standalone junonia program and start running.
+docs="$(env LC_ALL=en_US.UTF-8 JUNONIA_TARGET="$app/prog" JUNONIA_CACHE=0 \
+         "$run_shell" -c '. "$1/junonia" >/dev/null 2>&1; junonia_doc_list "$2"' \
+         sh "$root" "$app/doc" 2>/dev/null)"
+check_contains 'doc list: the program document is first' \
+  "$(printf '%s\n' "$docs" | head -1)" '/prog.md'
+
+doc_at() {
+  printf '%s\n' "$docs" | grep -n -x -- "$app/doc/$1" | cut -d: -f1
+}
+
+check 'doc list: a parent precedes what is nested under it' 'yes' "$(
+  parent="$(doc_at prog_nest.md)"
+  child="$(doc_at prog_nest_deep.md)"
+  [ -n "$parent" ] && [ -n "$child" ] && [ "$parent" -lt "$child" ] &&
+    echo yes || echo no
+)"
 
 run_sprog help
 check_contains 'spec help: comments' "$out" \

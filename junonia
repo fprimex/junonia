@@ -912,6 +912,16 @@ junonia_update_config () {
 ### Markdown parsing functions
 ###
 
+# Documentation file names encode the command tree, and the spec and the help
+# need a parent before what is nested under it. Byte order gives that, because a
+# child is its parent's name with '_' added and '.' sorts before '_'. The sort is
+# asked for that order directly, since an LC_ALL in the environment overrules the
+# LC_COLLATE junonia exports. A directory with no documentation yields nothing,
+# which the caller reports as a spec it could not build.
+junonia_doc_list () {
+  ls -1 "$1"/*.md 2>/dev/null | LC_ALL=C sort
+}
+
 # Parse Markdown text into a program argument spec
 _junonia_md2spec () {
   echodebug "begin md2spec"
@@ -1841,7 +1851,8 @@ _junonia_help () {
 
   case "${JUNONIA_SPEC_TYPE#cached_}" in
     dir)
-      mds="$(for f in "$JUNONIA_MD"/*.md; do cat "$f"; echo; done)"
+      mds="$(junonia_doc_list "$JUNONIA_MD" |
+               while IFS= read -r doc; do cat "$doc"; echo; done)"
       helptext="$( {
                      echo "$mds"
                      _junonia_metacmd_docs "$cmd"
@@ -2200,7 +2211,9 @@ junonia_init () {
   # Strip the trailing / from TMPDIR if there is one
   export TMPDIR="$(echo "$TMPDIR" | sed 's#/$##')"
 
-  # Set LC_COLLATE explicitly to C to ensure file glob in the expected order
+  # The awk rules match on ASCII ranges, and the programs junonia runs glob and
+  # sort, so the collation is fixed for both. The order junonia itself depends
+  # on is not left to this, because LC_ALL overrides it: see junonia_doc_list.
   export LC_COLLATE=C
 
   # Get the absolute path to command used to start this script. JUNONIA_TARGET
@@ -3211,8 +3224,15 @@ junonia_runmd_filtered () {
   spec_type=
   if [ -d "$md" ]; then
     readonly JUNONIA_DOCDIR="$md"
-    spec="${spec:-"$(_junonia_md2spec "$md"/*.md -)"}"
+    docs="$(junonia_doc_list "$md")"
+    # Split the list on newlines only, so that a document path with a space in
+    # it stays one word for awk.
+    old_IFS=$IFS
+    IFS='
+'
+    spec="${spec:-"$(_junonia_md2spec $docs -)"}"
     ret=$?
+    IFS=$old_IFS
     spec_type="${cached}dir"
   elif [ -f "$md" ]; then
     spec="${spec:-"$(_junonia_md2spec "$md" -)"}"
