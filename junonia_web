@@ -1,5 +1,13 @@
 #!/bin/sh
 
+###
+### License
+###
+
+# Junonia is public domain software licensed by the CC0
+# https://creativecommons.org/public-domain/cc0/
+# https://github.com/fprimex/junonia
+
 _junonia_web_cmds='  jpath
     JSON_TEXT=-
     -r, -root ROOT_SELECTOR=.
@@ -42,7 +50,7 @@ JSON formatted text to print as a tree. If \`-\` is given input will be read fro
 
 ### Options
 
-* -r, -root \`ROOT_SELECTOR\`
+* \`-r, -root ROOT_SELECTOR\`
 
 Provide a \`jq\` style selector that should be an array of objects. [default: \`.\`]
 
@@ -71,7 +79,7 @@ JSON formatted text to print as a tree. If \`-\` is given input will be read fro
 
 ### Options
 
-* -r, -root \`ROOT_SELECTOR\`
+* \`-r, -root ROOT_SELECTOR\`
 
 Provide a \`jq\` style selector that should be an array of objects. [default: \`.\`]
 
@@ -100,13 +108,13 @@ JSON formatted text to print as a table. If \`-\` is given input will be read fr
 
 ### Options
 
-* -r, -root \`ROOT_SELECTOR\`
+* \`-r, -root ROOT_SELECTOR\`
 
 Provide a \`jq\` style selector that should be an array of objects. [default: \`.\`]
 
-* -t, -transpose
+* \`-t, -transpose\`
 
-If the table should be transposed. [default: \`true\`]
+If the table should be transposed. [default: \`false\`]
 
 ### JSON options
 
@@ -208,7 +216,7 @@ $_junonia_web_cmds"
   junonia_auth_config
 
   readonly JW_DEFAULT_CURLRC="$JUNONIA_CONFIGDIR/curlrc"
-  readonly JW_CURLRC="${JW_CURLRC:-"$JW_DEFAULT_CURLRC"}"
+  JW_CURLRC="${JW_CURLRC:-"$JW_DEFAULT_CURLRC"}"
   # Indicate that init has happened
   readonly JW_INIT=1
 }
@@ -316,23 +324,26 @@ junonia_jprint () {
   # $1: JSON body
   # $2: Optional selector for jq to make the root
 
+  # Only what is there gets shifted, a shift past the last argument stopping
+  # dash, ksh, and mksh outright.
+
   # no args, or both args empty
-  if [ $# -eq 0 ] || ( [ "$1" = "" ] && [ "$2" = "" ] ); then
+  if [ $# -eq 0 ] || ( [ "${1-}" = "" ] && [ "${2-}" = "" ] ); then
     _body="$(cat)"
     _selector=
   # explicit read from stdin or first arg is json arg (start with ".")
-  elif [ "$1" = "-" ] || [ "$(echo "$1" | cut -c 1)" = "." ]; then
+  elif [ "${1-}" = "-" ] || [ "$(echo "$1" | cut -c 1)" = "." ]; then
     _body="$(cat)"
-    _selector="$2"
+    _selector="${2-}"
     shift
-    shift
+    if [ $# -gt 0 ]; then shift; fi
   # 1 or more args, arg 1 is not - or starts with .
   # take $1 and $2, with $2 potentially empty
   else
     _body="$1"
-    _selector="$2"
+    _selector="${2-}"
     shift
-    shift
+    if [ $# -gt 0 ]; then shift; fi
   fi
 
   # This provides $ARGS.positional
@@ -487,6 +498,15 @@ junonia_format_jtable () {
 }
 
 junonia_web () {
+  # The five words of a web call are a unit: _junonia_exec checks them when it
+  # unpacks what the awk built, and this is here for a program that calls
+  # junonia_web itself.
+  if [ $# -lt 5 ]; then
+    echoerr "junonia_web takes a function name, method, content type, url," \
+            "and output template"
+    return 1
+  fi
+
   func_name="$1"
   shift
   method="$1"
@@ -564,33 +584,51 @@ junonia_web () {
 
   echodebug "final url: $url"
 
-  json="$1"
-  shift
+  # A request whose parameters all came from the url has nothing left here.
+  json="${1-}"
+  if [ $# -gt 0 ]; then shift; fi
   echodebug "  json: $json"
 
   echodebug "remaining arguments ($#):"
   echodebug_raw $@
-  i=0
+
+  # What is left over is a query parameter, the options having arrived as
+  # name=value. They join each other with '&', and the whole thing takes
+  # whichever separator the url does not already have: a url from the
+  # documentation may carry its own query, and a url with nothing to add gets
+  # neither separator, so a request does not go out as /things/42?.
   query=
-  while [ $i -le $# ]; do
-    query="$query&$1"
-    i=$(( $i+1 ))
+  while [ $# -gt 0 ]; do
+    if [ -n "$1" ]; then
+      if [ -n "$query" ]; then
+        query="$query&$1"
+      else
+        query="$1"
+      fi
+    fi
     shift
   done
-  echodebug "remaining arguments ($#):"
-  echodebug_raw $@
 
   if [ -n "$JW_ADDL_OPTIONS" ]; then
-    query="$query&$JW_ADDL_OPTIONS"
+    if [ -n "$query" ]; then
+      query="$query&$JW_ADDL_OPTIONS"
+    else
+      query="$JW_ADDL_OPTIONS"
+    fi
   fi
 
   if [ -n "$query" ]; then
-    query="?${query#?}"
+    case "$url" in
+      *\?*) query="&$query" ;;
+      *)    query="?$query" ;;
+    esac
   fi
 
   echodebug "final query: $query"
 
-  if _junonia_load_func $func_name; then
+  # The callback is optional, so this search must not report the common case of
+  # a command that has no implementation of its own.
+  if _junonia_find_func "$func_name"; then
     echodebug "located callback $func_name"
     cb=$func_name
   elif command -v ${JUNONIA_NAME}_web_callback >/dev/null 2>&1; then
@@ -776,8 +814,9 @@ junonia_request () {
       POST|PUT|PATCH)
         _method="$1"
         shift
-        _payload="$1"
-        shift
+        # The payload is the last thing a short call has, if it is there at all.
+        _payload="${1-}"
+        if [ $# -gt 0 ]; then shift; fi
         if [ -z "$_payload" ]; then
           echodebug "WARNING: EMPTY PAYLOAD"
           # Not going to error. I have seen weirder things than requiring
@@ -792,10 +831,10 @@ junonia_request () {
     esac
 
     if [ -z "$_url" ]; then
-      _content_t="$1"
-      shift
+      _content_t="${1-}"
+      if [ $# -gt 0 ]; then shift; fi
 
-      if [ -z "$1" ]; then
+      if [ -z "${1-}" ]; then
         echoerr "no url was provided"
         return 1
       else
@@ -818,8 +857,9 @@ junonia_request () {
       fi
     fi
 
-    # Was a page limit provided?
-    if [ "$1" -eq "$1" ] >/dev/null 2>&1; then
+    # Was a page limit provided? There has to be an argument to look at: dash
+    # reads the empty string as a number, and then there is nothing to shift.
+    if [ $# -gt 0 ] && [ "$1" -eq "$1" ] >/dev/null 2>&1; then
       echodebug "page limit is $1"
       _npages="$1"
       shift
@@ -831,8 +871,9 @@ junonia_request () {
       fi
     fi
 
-    # Was a _selector provided?
-    if [ -z "${1##.*}" ]; then
+    # Was a _selector provided? It has to be something, since with nothing
+    # left there is no selector and no argument to shift.
+    if [ $# -gt 0 ] && [ -z "${1##.*}" ]; then
       echodebug "selector provided for paging: $1"
       _selector="$1"
       shift
@@ -840,7 +881,7 @@ junonia_request () {
 
     # Was a _callback supplied?
     echodebug "checking to see if callback was supplied: $1"
-    if [ junonia_require_cmds "$1" 2>/dev/null ]; then
+    if [ $# -gt 0 ] && [ junonia_require_cmds "$1" 2>/dev/null ]; then
       echodebug "found callback command $1"
       _callback="$1"
       shift
@@ -900,9 +941,9 @@ junonia_request () {
   fi
 
   case "$JW_AUTH_SRC" in
-    curl)
+    curlrc)
       _autharg="$JW_AUTH"
-      _autharg_debug='$JW_AUTH_REDACTED (curl)'
+      _autharg_debug='$JW_AUTH_REDACTED (curlrc)'
       ;;
     oauth)
       _autharg="--oauth2-bearer $JW_OAUTH"
@@ -1002,21 +1043,22 @@ junonia_request () {
   esac
 }
 
-# Copy of junonia_bootstrap for executing this script directly
+# Copy of junonia_bootstrap for executing this script directly.
+#
+# readlink, not `file -h`, as the copy in junonia does.
 junonia_web_bootstrap () {
   JUNONIA_TARGET="$0"
   while [ -h "$JUNONIA_TARGET" ]; do
-    JUNONIA_PATH="$(file -h "$JUNONIA_TARGET" | \
-                    sed 's/^.*symbolic link to //')"
+    JUNONIA_PATH="$(readlink "$JUNONIA_TARGET")"
     if [ "$(echo "$JUNONIA_PATH" | cut -c -1)" = "/" ]; then
       JUNONIA_TARGET="$JUNONIA_PATH"
     else
-      JUNONIA_TARGET="$(dirname $JUNONIA_TARGET)"
+      JUNONIA_TARGET="$(dirname "$JUNONIA_TARGET")"
       JUNONIA_TARGET="$JUNONIA_TARGET/$JUNONIA_PATH"
     fi
   done
   JUNONIA_PATH="$(cd "$(dirname "$JUNONIA_TARGET")" && pwd -P)"
-  JUNONIA_TARGET="$JUNONIA_PATH/$(basename $JUNONIA_TARGET)"
+  JUNONIA_TARGET="$JUNONIA_PATH/$(basename "$JUNONIA_TARGET")"
   if [ "$(basename "$JUNONIA_PATH")" = bin ]; then
     JUNONIA_PATH="$(dirname "$JUNONIA_PATH")"
   fi
