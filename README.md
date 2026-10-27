@@ -26,6 +26,10 @@ The junonia library also provides:
 
 If the program implementation follows the junonia conventions for project layout, then all that is required, typically, is to write Markdown, then implement each subcommand as a shell function that will receive argument values in the order defined in the Markdown, and finally `junonia_bootstrap; . $JUNONIA_PATH/path/to/junonia; junonia_run "$@"`
 
+## Use of AI
+
+This project was started before 2019 and was 100% hand written until the first use of AI in late 2026. This use has been ethical and responsible, in that the AI was run locally on a Strix Halo computer in a home powered by solar panels, and every line changed has been read by a human for approval, removal, or modification. This project is not carelessly vibe coded, and has benefitted greatly from AI assistance.
+
 ## Getting started
 
 There are many different ways to use junonia to handle program configuration and execution, but for this 'getting started' section I'll assume you want to use Markdown for command and subcommand documentation, and use a directory layout that will be automatically discovered.
