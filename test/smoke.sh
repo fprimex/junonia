@@ -871,10 +871,10 @@ check_exits_quickly() {
 }
 
 check_exits_quickly 'documented, no implementation' \
-  'command not found: prog_ghost' ghost
+  'command not found: prog ghost' ghost
 
 check_exits_quickly 'implementation without function' \
-  'command not found: prog_missing' missing
+  'command not found: prog missing' missing
 
 ###
 ### JSON options

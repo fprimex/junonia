@@ -15,6 +15,7 @@ _junonia_web_cmds='  jpath
     JSON_TEXT=-
     -r, -root ROOT_SELECTOR=.
     -t, -transpose=
+    -c, -column-headings=
   jtree
     JSON_TEXT=-
     -r, -root ROOT_SELECTOR=.
@@ -94,7 +95,7 @@ Print JSON values from an array of objects in a table format
 
 ### Synopsis
 
-    $JUNONIA_NAME jtable [JSON_TEXT] [-r ROOT_SELECTOR] [-t] [COLUMNS]
+    $JUNONIA_NAME jtable [JSON_TEXT] [-r ROOT_SELECTOR] [-t] [-c] COLUMN1 COLUMN2 [COLUMNS]
 
 ### Description
 
@@ -115,6 +116,10 @@ Provide a \`jq\` style selector that should be an array of objects. [default: \`
 * \`-t, -transpose\`
 
 If the table should be transposed. [default: \`false\`]
+
+* \`-c, -column-headings\`
+
+If the provided column selectors should be included as table headings. [default: \`false\`]
 
 ### JSON options
 
@@ -287,7 +292,7 @@ junonia_jq_jpath='
 junonia_jq_jtable='
   def jtable(json):
       json.transpose as $t
-      | [
+      | if json.headers then [json.columns] else [] end + [
           json.element[]
           | [
               json.columns[] as $c
@@ -323,9 +328,6 @@ junonia_jprint () {
   # Now, with the program shifted
   # $1: JSON body
   # $2: Optional selector for jq to make the root
-
-  # Only what is there gets shifted, a shift past the last argument stopping
-  # dash, ksh, and mksh outright.
 
   # no args, or both args empty
   if [ $# -eq 0 ] || ( [ "${1-}" = "" ] && [ "${2-}" = "" ] ); then
@@ -420,12 +422,21 @@ junonia_jtable () {
   text="$1"
   root="$2"
   transpose="$3"
+  cheadings="$4"
 
   if [ $transpose ]; then
-    jq_prog='jtable({"element":.,"columns":$ARGS.positional,"transpose":true})'
+    jt="true"
   else
-    jq_prog='jtable({"element":.,"columns":$ARGS.positional})'
+    jt="false"
   fi
+
+  if [ $cheadings ]; then
+    jc="true"
+  else
+    jc="false"
+  fi
+
+  jq_prog='jtable({"element":.,"columns":$ARGS.positional,"transpose":'$jt',"headers":'$jc'})'
 
   # Columns are jq args and so are collected in JW_JQARGS
 
@@ -443,10 +454,7 @@ junonia_jtable () {
 
 junonia_format_jtable () {
   table="$1"
-  headers="$2"
 
-  echodebug "headers"
-  echodebug_raw "$headers"
   echodebug "table"
   echodebug_raw "$table"
 
@@ -464,7 +472,7 @@ junonia_format_jtable () {
                             }')"
   echodebug "column width: $colw"
 
-  colws="$(echo "$headers" | awk -v jfs=$JFS -v w=$colw '{
+  colws="$(echo "$table" | awk -v jfs=$JFS -v w=$colw '{
     n = split($0, a, jfs)
     for(i=1; i<=n; i++) {
       if(substr(a[i], length(a[i])) == " ") {
@@ -475,15 +483,16 @@ junonia_format_jtable () {
     }
     sub(jfs, "", colws)
     print colws
+    exit
   }')"
   echodebug "column widths: $colws"
 
-  if ! table_txt="$(junonia_ncol "$headers" "$colws")"; then
-    echoerr "Could not format table"
-    echoerr_raw "$table_txt"
-    return 1
-  fi
-  printf '%s\n' "$table_txt"
+  #if ! table_txt="$(junonia_ncol "$headers" "$colws")"; then
+  #  echoerr "Could not format table"
+  #  echoerr_raw "$table_txt"
+  #  return 1
+  #fi
+  #printf '%s\n' "$table_txt"
 
   # iterate over the lines provided from jq, formatting into the columns
   printf "%s\n" "$table" | while read -r record; do
@@ -498,11 +507,8 @@ junonia_format_jtable () {
 }
 
 junonia_web () {
-  # The five words of a web call are a unit: _junonia_exec checks them when it
-  # unpacks what the awk built, and this is here for a program that calls
-  # junonia_web itself.
   if [ $# -lt 5 ]; then
-    echoerr "junonia_web takes a function name, method, content type, url," \
+    echoerr "junonia_web requires a function name, method, content type, url," \
             "and output template"
     return 1
   fi
@@ -584,7 +590,6 @@ junonia_web () {
 
   echodebug "final url: $url"
 
-  # A request whose parameters all came from the url has nothing left here.
   json="${1-}"
   if [ $# -gt 0 ]; then shift; fi
   echodebug "  json: $json"
@@ -626,9 +631,8 @@ junonia_web () {
 
   echodebug "final query: $query"
 
-  # The callback is optional, so this search must not report the common case of
-  # a command that has no implementation of its own.
-  if _junonia_find_func "$func_name"; then
+  # Look for a callback, which is not required
+  if _junonia_func_search "$JUNONIA_PATH" "$func_name"; then
     echodebug "located callback $func_name"
     cb=$func_name
   elif command -v ${JUNONIA_NAME}_web_callback >/dev/null 2>&1; then
@@ -814,7 +818,6 @@ junonia_request () {
       POST|PUT|PATCH)
         _method="$1"
         shift
-        # The payload is the last thing a short call has, if it is there at all.
         _payload="${1-}"
         if [ $# -gt 0 ]; then shift; fi
         if [ -z "$_payload" ]; then
@@ -857,9 +860,8 @@ junonia_request () {
       fi
     fi
 
-    # Was a page limit provided? There has to be an argument to look at: dash
-    # reads the empty string as a number, and then there is nothing to shift.
-    if [ $# -gt 0 ] && [ "$1" -eq "$1" ] >/dev/null 2>&1; then
+    # Was a page limit provided?
+    if [ $# -gt 0 ] && junonia_is_int "$1"; then
       echodebug "page limit is $1"
       _npages="$1"
       shift
@@ -1044,8 +1046,6 @@ junonia_request () {
 }
 
 # Copy of junonia_bootstrap for executing this script directly.
-#
-# readlink, not `file -h`, as the copy in junonia does.
 junonia_web_bootstrap () {
   JUNONIA_TARGET="$0"
   while [ -h "$JUNONIA_TARGET" ]; do
