@@ -1,8 +1,6 @@
 # This is a compact version of junonia_bootstrap for easy copying into user
 # scripts. For a fully commented, documented version of this script see
 # https://github.com/fprimex/junonia/blob/main/junonia
-#
-# readlink, not `file -h`: the latter is neither portable nor always installed.
 junonia_bootstrap () {
   JUNONIA_TARGET="$0"
   while [ -h "$JUNONIA_TARGET" ]; do
