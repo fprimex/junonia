@@ -23,9 +23,12 @@ The junonia library also provides:
 * cache file function and command for management
 * awk utility scripts for output, formatting, and more
 * shell utility scripts for output, formatting, and more
-* plugin support and management (still under development)
 
 If the program implementation follows the junonia conventions for project layout, then all that is required, typically, is to write Markdown, then implement each subcommand as a shell function that will receive argument values in the order defined in the Markdown, and finally `junonia_bootstrap; . $JUNONIA_PATH/path/to/junonia; junonia_run "$@"`
+
+## Use of AI
+
+This project was started before 2019 and was 100% hand written until the first use of AI in late 2026. This use has been ethical and responsible, in that the AI was run locally on a Strix Halo computer in a home powered by solar panels, and every line changed has been read by a human for approval, removal, or modification. This project is not carelessly vibe coded, and has benefitted greatly from AI assistance.
 
 ## Getting started
 
@@ -168,7 +171,6 @@ SUBCOMMANDS
   help            Print information about program and subcommand usage
   config          Display or edit the `prog` config file
   cache           Generate or clear meta-information cache
-  plugin          Manage prog shell plugins and programs
   version         Display program version
 ```
 
@@ -262,18 +264,61 @@ This format specifies that `-multi-option` can be given more than once on the co
 
 * Documenting subcommands in Markdown is encouraged, but not required for functionality. During command execution, subcommands are discovered dynamically both for command execution and for online documentation.
 
+## JSON options
+
+An option whose name begins with a period is a field of a JSON body rather than an argument. Junonia collects these into a JSON document, which is what gets sent as the payload of a `POST`, `PUT`, or `PATCH` request by the web layer in `junonia_web`, where a command documents its endpoint with a `### REST endpoint` section. Whatever is built is also available to the command function as `JW_JSON`.
+
+```
+* `.name NAME`
+
+A JSON string.
+
+* `.enabled=true`
+
+A JSON boolean defaulting to true.
+
+* `.disabled=0`
+
+A JSON boolean defaulting to false.
+```
+
+The rules for these are the same as for other options, with two differences that matter.
+
+A boolean with a documented default appears in the JSON whatever that default is, false included, so that the key exists in the body. A boolean with no documented default is left out until it is given, because in a `PATCH` payload an absent field means leave alone, and junonia should not invent an opinion the caller never expressed. So document a default of false for a field the API must be told is false, and document no default for a field that should go unsent unless the user asks.
+
+JSON options are not passed to the command function and take up no argument slot, so the positions of the arguments a function receives are unaffected by how many JSON options are documented or given.
+
+Their names need not be documented. junonia collects every JSON option it is given, because what an API call accepts as a payload is rarely something a manual can enumerate, and never reports an undocumented one as an unknown option. What documenting one does is give it a default, which also puts a boolean into every body, true or false; an undocumented name, like a documented one with no default, appears only when given.
+
+The name is a path, and each identifier of it becomes a key, quoted as jq requires, so anything jq allows in a key can be given: `.x=1 bob` sends `{"x=1":"bob"}`, dashes, equals signs and spaces (with the usual shell quoting) being simply the key.
+
+A period divides one key from the next, so `.foo.bar v` sends `{"foo":{"bar":"v"}}`. A backslash makes the character after it part of the key, so `.foo\.bar v` sends `{"foo.bar":"v"}`.
+
+Brackets are jq syntax. A number indexes an array, so `.a[0].b v` sends `{"a":[{"b":"v"}]}`. Text names a key, so `.a[b] v` sends what `.a.b v` sends, with this use for it: nothing is escaped between brackets, so `.a[b.c] v` sends `{"a":{"b.c":"v"}}`. An empty pair at the end of a name adds each value to the array rather than replacing the last, so `.tags[] x .tags[] y` sends `{"tags":["x","y"]}`.
+
+A name that is not a path is reported rather than handed on to jq, as `.tag[]s` is, and two keys cannot be named: one whose own name ends in `[]`, which the append marker claims, and one holding a `[` or `]` that is not part of the syntax above.
+
+Values are quoted for jq as well, so what is typed is what is sent, quote, backslash and newline included. Numbers and `true`, `false` and `null` go as themselves; one of those sent as a string takes `|tostring` appended.
+
+Values may come from the command line (`.name bob`, `.enabled false`), from a configuration file entry, or from the environment variable, in the same precedence order as any other option, and a value given on the command line beats a documented default of either sign.
+
 ## Function notes and features
 
 * Functions implementations are searched for by the format `command_subcommand` for the invocation 'command subcommand'.
 * If the command is already present then that command is used. So, for example, all commands could be implemented in the top level program, or they could be implemented in any file or using any method as long as they are sourced or otherwise present at execution time.
 * Functions receive argument values in the order they are declared in the documentation. This includes arguments of preceding commands. So if `command` has argument `-option-one`, and `subcommand` has `-option-two`, then executing `command subcommand` will cause the `command_subcommand` function to receive the value of `-option-one` as `$1` and `-option-two` as `$2`.
-* The argument value handling implemented in junonia allows for spaces and multi-line arguments to be given and properly passed to the function. This is accomplished by separating argument values that are given with `JUNONIA_FS`, the field separator, and then passing the values with `IFS` set to `JUNONIA_FS`. This is an implementation detail, and no end-user use of `JUNONIA_FS` is needed. Just be aware that your values can contain spaces and newlines and junonia will handle this properly.
+* The argument value handling implemented in junonia allows for spaces and multi-line arguments to be given and properly passed to the function. This is accomplished by separating argument values that are given with `JUNONIA_RS`, the record separator, and then passing the values with `IFS` set to `JUNONIA_RS`. This is an implementation detail, and no end-user use of `JUNONIA_RS` is needed. Just be aware that your values can contain spaces and newlines and junonia will handle this properly.
 * Multi-value options, as mentioned, will be separated with `JUNONIA_US`, the unit separator. See [Program invocation](#program-invocation) for an example of iterating over a multi-option value using `IFS` and `JUNONIA_US`.
 * It is not recommended to implement the top level function as, e.g., `prog.sh` in the commands directory. This is because when the search for the `prog` command is done, the top level script itself will be found. Instead, implement the `prog` function in the top level script and junonia will detect that it is a shell function properly.
+* A command should not have both positional parameters and subcommands. Positional parameters are resolved before subcommands, so a value that happens to name a subcommand is taken for the positional parameter, and the options of that subcommand are then reported as unknown. For example, document `prog opts [POS1]` or `prog opts SUBCOMMAND`, but not both.
+* All positional parameters must precede all options, and options must follow the complete subcommand path. `prog sub -shared-foo one -opt two` is valid; `prog -shared-foo one sub -opt two` is not.
+* An option and its value are separate words. The `prog -foo-bar=value` form is not accepted; use `prog -foo-bar value`. A JSON option is named by one whole word, so `prog json .foo-bar=value` is the key `foo-bar=value` set to true, and its value, if any, is the next word.
 
 ## Configuration file and environment variables
 
-Each option name has a corresponding environment variable name and configuration file entry. The name used for both is the same. The command is capitalized, followed by `_`, then hyphens in the command are converted to `_` as well, and the two are concatenated, resulting in `PROG_foo_bar`.
+Each option name has a corresponding environment variable name and configuration file entry. The name used for both is the same. The program name is capitalized, followed by `_`, then the option name with its hyphens converted to `_` as well, and the two are concatenated, resulting in `PROG_foo_bar`.
+
+A subcommand's options are prefixed with the whole command path, and only the program name is capitalized. The option `-foo-bar` of the command `prog sub` is set by `PROG_sub_foo_bar`, and of `prog sub deeper` by `PROG_sub_deeper_foo_bar`. Note that this means the names of subcommands are case sensitive in the configuration file and environment.
 
 The default configuration file location is `~/.prog/progrc`. The file is processed as a shell file in such a way that only `PROG_` variable values are set. However, since the file is sourced, THE CONFIGURATION FILE CAN EXECUTE COMMANDS. This is not a recommended use of the configuration file. Additionally, the configuration file can be manipulated with the `config` subcommand. Be aware that the `config` subcommand currently cannot handle removing multi-line values, and those need to be manually removed.
 
@@ -288,7 +333,7 @@ Junonia provides several options for obtaining function argument values. They ar
 * Markdown default (`-foo-bar BAZ=1`)
 * Configuration file (As a line in `~/.prog/progrc`: `PROG_foo_bar=2`)
 * Environment variable (exported in the environment: `PROG_foo_bar=3`)
-* Command line argument (`prog -foo-bar=4`)
+* Command line argument (`prog -foo-bar 4`)
 
 ## Conventional locations
 
@@ -322,6 +367,47 @@ $JUNONIA_PATH/
 ## Additonal examples layouts and invocation options
 
 See the [examples](https://github.com/fprimex/junonia/tree/master/examples) directory to see how you can use junonia to parse arguments from either a program argument spec defined in a tree-like format, or from Markdown documentation for each command.
+
+## Testing
+
+Run the smoke tests with:
+
+```
+$ test/smoke.sh
+```
+
+That run is one pass with `/bin/sh` and the `awk` of the machine you are on, which is the quick loop. Nothing outside the scratch directory is touched.
+
+The suite runs the examples above, then builds a program in a scratch directory and asserts on the exact argument list its command functions receive for every kind of argument: spec defaults, configuration file, environment variables, command line values, booleans, repeatable options, positional parameters, nested subcommands, and the error paths. It also exercises caching, the `config` subcommand, the JSON options, and the web layer.
+
+Before finishing a feature or a release, run the whole matrix of shells and AWKs, which is where the differences between them show up:
+
+```
+$ test/smoke.sh --matrix
+```
+
+The shells are
+
+```
+sh bash dash ksh mksh yash pdksh busybox ash
+```
+
+and the AWKs are `awk`, `gawk`, and `mawk`. Whichever `awk` is found first is the one junonia finds, so the first entry of the list is used to stand for it, and combinations that resolve to the same executable run once. Busybox is run as `busybox sh`. Anything not installed is skipped.
+
+zsh is not on the list. It is not a POSIX shell in the two ways that matter to a library: it splits no unquoted parameter, and `$0` names the running function rather than the script, and the file being read while a file is being sourced, so a program cannot work out its own path from where it was run. junonia is written to the POSIX shell rather than worked around for zsh.
+
+Narrow the matrix with `JUNONIA_TEST_SHELLS` and `JUNONIA_TEST_AWKS`, which ask for the matrix on their own, or run a single combination with `JUNONIA_SMOKE_SHELL` and `JUNONIA_SMOKE_AWK`:
+
+```
+$ JUNONIA_TEST_SHELLS='ksh mksh' test/smoke.sh
+$ JUNONIA_SMOKE_SHELL=dash JUNONIA_SMOKE_AWK=mawk test/smoke.sh
+```
+
+Pass `-v` for the output of each failing check, and set `JUNONIA_SMOKE_KEEP=1` to leave the scratch directory in place for inspection.
+
+## Locale
+
+`junonia_init` exports `LC_COLLATE=C`. Documentation file names encode the command tree (`prog_sub1_sub11.md`), so both the argument spec and the help output are built by walking the documentation in a collation where `_` sorts after `.` and the parent of a command tree is always read before its children. The default collation of many systems does not order them that way, which results in a spec in which subcommands appear before the commands that hold them. The value is exported, so it also applies to any program junonia runs on your behalf. Set it back after sourcing junonia if your own program depends on a different collation.
 
 ## Junonia utilities and functions
 

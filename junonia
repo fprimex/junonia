@@ -1,6 +1,14 @@
 #!/bin/sh
 
 ###
+### License
+###
+
+# Junonia is public domain software licensed by the CC0
+# https://creativecommons.org/public-domain/cc0/
+# https://github.com/fprimex/junonia
+
+###
 ### Typical usage and program flow
 ###
 
@@ -129,6 +137,11 @@ echoerr () { echoerr_raw "[ERROR] $@"; }
 echodebug_raw () { printf '%s\n' "$@" 1>&3; }
 echodebug () { echodebug_raw "[DEBUG] $@"; }
 
+# Print trace messages to file descriptor 4, which will either go to stderr if
+# trace output is enabled or /dev/null if it is not.
+echotrace_raw () { printf '%s\n' "$@" 1>&4; }
+echotrace () { echotrace_raw "[TRACE] $@"; }
+
 # Convenience functions for using a verbose level echo
 echov   () { [ -n "$verbose"   ] && printf '%s\n' "$@"; }
 echovv  () { [ -n "$vverbose"  ] && printf '%s\n' "$@"; }
@@ -163,22 +176,34 @@ junonia_awk_echodebug_raw='function echodebug_raw(msg) {
   }
 }'
 
+junonia_awk_echotrace='function echotrace(msg) {
+  if(ENVIRON["JUNONIA_DEBUG"] == "2") {
+    echoerr_raw("[TRACE] " msg)
+  }
+}'
+
+junonia_awk_echotrace_raw='function echotrace_raw(msg) {
+  if(ENVIRON["JUNONIA_TRACE"] == "2") {
+    echoerr_raw(msg)
+  }
+}'
+
+# Wrap a long line to a specified width and optionally add a prefix / indent.
+#
+# Arguments
+# ---------
+# line    Text to wrap
+# width   Line width to wrap to
+# pre     Prefix string such as an indent
+# float   Float text without spaces longer than width instead of breaking it
+#
+# Locals
+# ------
+# str     Portion of the line being wrapped
+# n       Index of the next space in the line
+# start   Index of the start of the next chunk
+# wrapped Final wrapped result
 junonia_awk_hardwrap_line='
-  # Wrap a long line to a specified width and optionally add a prefix / indent.
-  #
-  # Arguments
-  # ---------
-  # line    Text to wrap
-  # width   Line width to wrap to
-  # pre     Prefix string such as an indent
-  # float   Float text without spaces longer than width instead of breaking it
-  #
-  # Locals
-  # ------
-  # str     Portion of the line being wrapped
-  # n       Index of the next space in the line
-  # start   Index of the start of the next chunk
-  # wrapped Final wrapped result
   function hardwrap_line(line, width, pre, float,
                     str, n, wrapped) {
     # The start of the line will be removed as it is wrapped, so continue
@@ -252,6 +277,7 @@ junonia_awk_hardwrap='
                     linesa, str, n, i, wrapped) {
     n = split(lines, linea, "\n")
     for(i=1; i<=n; i++) {
+      echotrace("hardwrap: " linea[i] " " width " " pre " " float)
       wrapped = wrapped hardwrap_line(linea[i], width, pre, float) "\n"
     }
 
@@ -260,37 +286,40 @@ junonia_awk_hardwrap='
   }
 '
 
-
+# Given two strings and specifications for two columns, format the text side
+# by side in two columns.
+#
+# Arguments
+# ---------
+# t1        Text to go into the first column
+# t2        Text to go into the second column
+# col1      Width of column one
+# col2      Width of column two
+# gutter    Text to go in between the columns
+# pre       Text to go in front of the complete text, like an indent
+# f1        If unbroken lines of t1 longer than col1 should be left unbroken
+# f2        If unbroken lines of t2 longer than col2 should be left unbroken
+#
+# Locals
+# ------
+# fmt       Print format for each wrapped and combined line
+# t1a       Array of lines in text1
+# t2a       Array of lines in text2
+# i         Iterator variable
+# j         Iterator variable
+# n         Number of lines being processed for t1
+# m         Number of lines being processed for t2
+# formatted Final result
 junonia_awk_twocol='
-  # Given two strings and specifications for two columns, format the text side
-  # by side in two columns.
-  #
-  # Arguments
-  # ---------
-  # t1        Text to go into the first column
-  # t2        Text to go into the second column
-  # col1      Width of column one
-  # col2      Width of column two
-  # gutter    Text to go in between the columns
-  # pre       Text to go in front of the complete text, like an indent
-  # f1        If unbroken lines of t1 longer than col1 should be left unbroken
-  # f2        If unbroken lines of t2 longer than col2 should be left unbroken
-  #
-  # Locals
-  # ------
-  # fmt       Print format for each wrapped and combined line
-  # t1a       Array of lines in text1
-  # t2a       Array of lines in text2
-  # i         Iterator variable
-  # j         Iterator variable
-  # n         Number of lines being processed for t1
-  # m         Number of lines being processed for t2
-  # formatted Final result
   function twocol(t1, t2, col1, col2, gutter, pre, f1, f2,
                   fmt, t1a, t2a, i, j, n, m, formatted) {
     # Wrap each line to the desired column width.
     t1 = hardwrap(t1, col1, pre, f1)
     t2 = hardwrap(t2, col2, "", f2)
+
+    if(!gutter) {
+      gutter = " "
+    }
 
     # Assemble the print format. e.g.
     # Prefix 2 spaces, col1 20, gutter 1 space, col2 40
@@ -324,23 +353,23 @@ junonia_awk_twocol='
   }
 '
 
+# Given n strings and specifications for n columns, format the text side
+# by side in n columns.
+#
+# Arguments
+# ---------
+# n         Number of columns
+# texts     Array of text to go into the columns
+# cols      Array of column widths
+# gutters   Array of text to go between the columns
+# pre       Text to go in front of the complete text, like an indent
+# floats    If unbroken lines longer than cols should be left unbroken
+#
+# Locals
+# ------
+# i         Iterator variable
+# formatted Final result
 junonia_awk_ncol='
-  # Given n strings and specifications for n columns, format the text side
-  # by side in n columns.
-  #
-  # Arguments
-  # ---------
-  # n         Number of columns
-  # texts     Array of text to go into the columns
-  # cols      Array of column widths
-  # gutters   Array of text to go between the columns
-  # pre       Text to go in front of the complete text, like an indent
-  # floats    If unbroken lines longer than cols should be left unbroken
-  #
-  # Locals
-  # ------
-  # i         Iterator variable
-  # formatted Final result
   function ncol(n, texts, cols, gutters, pre, floats,
                 ctotal, i, formatted) {
     if(n < 2) {
@@ -404,8 +433,8 @@ junonia_awk_randomish_int='
   }
 '
 
-# Replace quotes and newlines with escape characters to prepare the
-# value for insertion into JSON.
+# Replace quotes and newlines with escape characters to prepare
+# the value for insertion into JSON.
 junonia_awk_json_escape='
   function json_escape(s, lines, nlines, i, result) {
     nlines = split(s, lines, "\n")
@@ -416,6 +445,152 @@ junonia_awk_json_escape='
       result = result "\\n" a[i]
     }
     return result
+  }
+'
+
+# Escape what jq will not take raw inside a quoted string.
+junonia_awk_jq_escape='
+  function jq_escape(s,   out, i, c) {
+    out = ""
+    for(i = 1; i <= length(s); i++) {
+      c = substr(s, i, 1)
+      if(c == "\\") {
+        out = out "\\\\"
+      } else if(c == "\"") {
+        out = out "\\\""
+      } else if(c == "\n") {
+        out = out "\\n"
+      } else if(c == "\r") {
+        out = out "\\r"
+      } else if(c == "\t") {
+        out = out "\\t"
+      } else {
+        out = out c
+      }
+    }
+    return out
+  }
+'
+
+# The name of a given JSON argument translates to a jq statement that, when
+# executed, generates a JSON object to store the given value. The name is
+# quoted so that a key may contain anything allowed by the JSON spec,
+# including "=", "[", "-", etc. Dots and matching brackets are treated as jq
+# syntax, making it easy to specify keys and arrays. See documentation for
+# more details.
+junonia_awk_jq_path='
+  function jq_path(name, out, i, c, ident, rest, stop) {
+    if(substr(name, 1, 1) == ".") {
+      name = substr(name, 2)
+    }
+    if(! length(name)) {
+      return ".\"\""
+    }
+    out = ""
+    i = 1
+    while(i <= length(name)) {
+      # A dot divides one key from the next, and belongs to neither.
+      if(substr(name, i, 1) == ".") {
+        i++
+      }
+
+      ident = ""
+      while(i <= length(name)) {
+        c = substr(name, i, 1)
+        if(c == "\\" && i < length(name)) {
+          ident = ident substr(name, i+1, 1)
+          i += 2
+          continue
+        }
+        if(c == ".") {
+          break
+        }
+        # A bracket with nothing to close it is a character of the key.
+        if(c == "[" && index(substr(name, i+1), "]")) {
+          break
+        }
+        ident = ident c
+        i++
+      }
+      # There is no key between two brackets, as in .a[0][1].
+      if(ident || substr(name, i, 1) != "[") {
+        out = out ".\"" jq_escape(ident) "\""
+      }
+
+      # Brackets following a key are syntax: an index, a key, or the marker
+      # that appends to an array.
+      while(substr(name, i, 1) == "[") {
+        rest = substr(name, i+1)
+        stop = index(rest, "]")
+        ident = substr(rest, 1, stop - 1)
+        i += stop + 1
+
+        if(! ident) {
+          out = out "[]"
+        } else if(ident ~ /^-?[0-9]+$/) {
+          out = out "[" ident "]"
+        } else {
+          # Text between brackets is a key, quoted by the caller or not.
+          if(length(ident) > 1 && substr(ident, 1, 1) == "\"" &&
+             substr(ident, length(ident), 1) == "\"") {
+            ident = substr(ident, 2, length(ident) - 2)
+          }
+          out = out ".\"" jq_escape(ident) "\""
+        }
+
+        if(substr(name, i, 1) == "[" || substr(name, i, 1) == "." ||
+           i > length(name)) {
+          break
+        }
+        # Only a name that cannot be a path gets this far, such as tag[]s.
+        echoerr("invalid JSON argument: ." name)
+        e = 1
+        exit 1
+      }
+    }
+    return out
+  }
+'
+
+# Assign to a JSON name in the program built so far, replacing the statement
+# made for it while the arguments were read. Statements are compared
+# literally, since a key holds anything at all, and a statement still held for
+# a possible JSON flag stays held.
+junonia_awk_set_json_stmt='
+  function set_json_stmt(name, val, lines, n, i, line, body, path, cmt) {
+    path = jq_path(name)
+    n = split(jqprog, lines, "\n")
+    jqprog = ""
+    for(i = 1; i <= n; i++) {
+      line = lines[i]
+      body = line
+      cmt = ""
+      if(substr(line, 1, 2) == "# ") {
+        cmt = "# "
+        body = substr(line, 3)
+      }
+      if(substr(body, 1, length(path) + 3) == path " = ") {
+        line = cmt path " = " val " |"
+      }
+      jqprog = jqprog "\n" line
+    }
+  }
+'
+
+# Take the comment off the statement held for a name that turns out to be a
+# JSON flag rather than the value of an option.
+junonia_awk_uncomment_json_stmt='
+  function uncomment_json_stmt(name,   lines, n, i, line, path) {
+    path = jq_path(name)
+    n = split(jqprog, lines, "\n")
+    jqprog = ""
+    for(i = 1; i <= n; i++) {
+      line = lines[i]
+      if(substr(line, 1, 2) == "# " && substr(line, 3, length(path)) == path) {
+        line = substr(line, 3)
+      }
+      jqprog = jqprog "\n" line
+    }
   }
 '
 
@@ -442,7 +617,6 @@ junonia_awk_mapbool='
   }
 '
 
-
 junonia_awk_make_jqarg='
   function make_jqarg(val) {
     # Unquoted special values
@@ -454,7 +628,7 @@ junonia_awk_make_jqarg='
       # a string no matter what. Values like true and 2.6 can be made "true"
       # and "2.6" by specifying true|tostring and 2.6|tostring.
       sub(/\|tostring$/, "", val)
-      return "\"" val "\""
+      return "\"" jq_escape(val) "\""
     }
   }
 '
@@ -469,6 +643,11 @@ junonia_awk_make_jqprog='
       # If the next thing is a comment, then add the comment and move on.
       jqprog = jqprog "\n" name
       return 0
+    }
+
+    if(substr(name, 1, 1) == ".") {
+      # The name is a key of the payload, not jq syntax.
+      name = jq_path(name)
     }
 
     if(next_argchar == "-" || next_argchar == "." || ! next_argchar) {
@@ -498,21 +677,6 @@ junonia_awk_end_jqprog='
   }
 '
 
-junonia_awk_isort='
-  function isort(A, start, end,
-                 i, j, value) {
-    for(i = start; i <= end; i++) {
-      value = A[i]
-      j = i - 1
-      while( ( j > start-1) && ( A[j] > value ) ) {
-        A[j+1] = A[j]
-        j--
-      }
-      A[j+1] = value
-    }
-  }
-'
-
 
 readonly JUNONIA_AWKS="
 $junonia_awk_hardwrap_line
@@ -523,13 +687,18 @@ $junonia_awk_echoerr
 $junonia_awk_echoerr_raw
 $junonia_awk_echodebug
 $junonia_awk_echodebug_raw
+$junonia_awk_echotrace
+$junonia_awk_echotrace_raw
 $junonia_awk_randomish_int
 $junonia_awk_json_escape
+$junonia_awk_jq_escape
+$junonia_awk_jq_path
+$junonia_awk_set_json_stmt
+$junonia_awk_uncomment_json_stmt
 $junonia_awk_mapbool
 $junonia_awk_make_jqarg
 $junonia_awk_make_jqprog
 $junonia_awk_end_jqprog
-$junonia_awk_isort
 "
 
 
@@ -756,6 +925,11 @@ junonia_update_config () {
 ### Markdown parsing functions
 ###
 
+# List markdown documents, sorting with LC_ALL=C to ensure proper ordering.
+junonia_doc_list () {
+  ls -1 "$1"/*.md 2>/dev/null | LC_ALL=C sort
+}
+
 # Parse Markdown text into a program argument spec
 _junonia_md2spec () {
   echodebug "begin md2spec"
@@ -763,6 +937,7 @@ _junonia_md2spec () {
   awk_prog='
     # Print the currently stored spec and reset for the next one.
     function spec () {
+      echotrace("generating spec")
       if(junonia_web) {
         cmd = cmd ", junonia_web"
       }
@@ -811,6 +986,7 @@ _junonia_md2spec () {
     }
 
     function md_to_jq(s, r, a, i) {
+      echotrace("md_to_jq")
       n = split(s, a, /`/)
       for(i=1; i<=n; i++) {
         if(i % 2 == 1) {
@@ -823,7 +999,16 @@ _junonia_md2spec () {
       return r
     }
 
+    # A documented boolean default in the spec is 1 or 0. mapbool cannot be
+    # used directly: it maps the empty string to true, and an empty default is
+    # false.
+    function boolspec(b, opt) {
+      echotrace("boolspec")
+      return mapbool(b, opt) == "1" ? "1" : "0"
+    }
+
     function insert_jtable() {
+      echotrace("inserting table")
       if(n_cols > n_headers) {
         root_element = rowa[n_cols-1]
         gsub(/`/, "", root_element)
@@ -894,6 +1079,7 @@ _junonia_md2spec () {
 
     # When encountering a header, leave any header we were in.
     /^#/ {
+      echotrace("matched #")
       if(output_table == 1) {
         insert_jtable()
         sub(JRS, "", output_text)
@@ -913,6 +1099,7 @@ _junonia_md2spec () {
     # Top level ## header
     # ## `command subcommand`
     /^## `[-,_A-Za-z0-9 ]+`/ {
+      echotrace("matched ##")
       if(cmd) {
         spec()
       }
@@ -949,11 +1136,13 @@ _junonia_md2spec () {
     }
 
     /^### REST endpoint/ {
+      echotrace("matched ### REST")
       endpoint = 1
       next
     }
 
     endpoint && /^    [A-Z]+ http/ {
+      echotrace("matched endpoint method and url")
       junonia_web = 1
       jw_method = $1
       jw_url = $2
@@ -962,21 +1151,25 @@ _junonia_md2spec () {
     }
 
     /^### Content type/ {
-        content_type = 1
-        next
+      echotrace("matched content type header")
+      content_type = 1
+      next
     }
 
     content_type && /^    [^\/]+\/[^\/]+/ {
-        jw_content_t = $1
+      echotrace("matched content type")
+      jw_content_t = $1
     }
 
     /^### Positional parameters/ {
+      echotrace("matched ### Positional")
       positional = 1
       next
     }
 
     # * `POS_ONE`
     positional && /^\* `[-_A-Z0-9]+`/ {
+      echotrace("matched positional parameter")
       gsub(/^\* `|`$/, "")
       params[++n_params] = $0
       param = 1
@@ -984,12 +1177,14 @@ _junonia_md2spec () {
     }
 
     positional && /\[default: `.*`\]$/ {
+      echotrace("matched positional parameter default")
       match($0, /\[default: `.*`\]$/)
       def = substr($0, RSTART+12, RLENGTH-12-2)
       params[n_params] = params[n_params] "=" def
     }
 
     /^### Options/ {
+      echotrace("matched ### Options")
       options = 1
     }
 
@@ -1005,6 +1200,8 @@ _junonia_md2spec () {
     # An option that can be repeated
     # * `-option VAL1 [-option VAL2 ...]`
     options && /^\* `-[-A-Za-z0-9]+/ {
+      echotrace("matched option")
+
       # Remove the leading bullet-space-backtick and the last backtick
       gsub(/^\* `|`$/, "")
 
@@ -1019,6 +1216,16 @@ _junonia_md2spec () {
 
       opt = substr(opt, 1, length(opt) - 1)
 
+      # A default written as part of the name, as in `-flag=1`, marks a
+      # boolean, so peel it off before the rest is read as a meta variable.
+      inline_def = ""
+      has_inline_def = 0
+      if(substr($0, 1, 1) == "=") {
+        has_inline_def = 1
+        inline_def = boolspec(substr($0, 2), opt)
+        $0 = ""
+      }
+
       opts[++n_opts] = opt
 
       sub(/^ */, "")
@@ -1032,70 +1239,93 @@ _junonia_md2spec () {
           opts[n_opts] = opts[n_opts] " [" a[1] "]"
         }
       }
+
+      if(has_inline_def) {
+        opts[n_opts] = opts[n_opts] "=" inline_def
+      }
     }
 
     options && /^\* `\.[-A-Za-z0-9]+/ {
+      echotrace("matched json option")
       # Remove the leading bullet-space-backtick and the last backtick
       gsub(/^\* `|`$/, "")
+
+      # The default rule below depends on opt and n_metas, so set them the way
+      # the option rule above does.
+      split($1, jn, "=")
+      opt = jn[1]
       opts[++n_opts] = $1
+
       if($2 ~ /[-_A-Z0-9]+/) {
         opts[n_opts] = opts[n_opts] " " $2
+        n_metas = 1
+      } else {
+        n_metas = 0
       }
     }
 
     options && /\[default: `.*`\]$/ {
+      echotrace("matched option default")
       match($0, /\[default: `.*`\]/)
       def = substr($0, RSTART+11, RLENGTH-11-2)
 
       if(n_metas == 0) {
         # This was previously determined to be a flag, so the default needs
         # to be processed and mapped to a spec bool value.
-        def = mapbool(def, opt)
+        def = boolspec(def, opt)
       }
 
       opts[n_opts] = opts[n_opts] "=" def
     }
 
     /^### Output/ {
+      echotrace("matched ### Output")
       output = 1
       next
     }
 
     output && /^    / {
+      echotrace("matched output indented code")
       output_icode = 1
     }
 
     output_icode && ( /^    / || /^$/ ) {
+      echotrace("matched output empty line")
       sub(/^    /, "")
       output_text = output_text "\n" $0
       next
     }
 
     output_icode && ! (/^$/ || /^    /) {
+      echotrace("matched output indented code exit")
       output_icode = 0
     }
 
     output_tcode && /^```/ {
+      echotrace("matched output backticks code exit")
       output_tcode = 0
       next
     }
 
     output && /^```/ {
+      echotrace("matched output backticks code")
       output_tcode = 1
       next
     }
 
     output_tcode {
+      echotrace("matched output backticks line")
       output_text = output_text "\n" $0
       next
     }
 
-    # divider row
     output_table && /^\|[- \|]+$/ {
+      echotrace("matched output table divider row")
       next
     }
 
     output_table && /^\|/ {
+      echotrace("matched output table row")
       n_cols = split($0, rowa, /\|/)
 
       sub(/^ /, "", rowa[2])
@@ -1115,12 +1345,14 @@ _junonia_md2spec () {
     }
 
     output_table && /^$/ {
+      echotrace("matched output table exit")
       insert_jtable()
       output_table = 0
       next
     }
 
     output && /^\|/ {
+      echotrace("matched output table")
       output_table = 1
       table_headers = ""
       table_cols = ""
@@ -1141,16 +1373,19 @@ _junonia_md2spec () {
     }
 
     output && output_text {
+      echotrace("matched append any jq to existing output")
       output_text = output_text "\n" md_to_jq($0)
       next
     }
 
     output {
+      echotrace("matched set output to any jq")
       output_text = md_to_jq($0)
       next
     }
 
     END {
+      echotrace("matched END")
       if(output_table == 1) {
         insert_jtable()
         sub(JRS, "", output_text)
@@ -1177,8 +1412,17 @@ _junonia_md2help () {
       echodebug("cmd: " cmd)
 
       # Split the supplied command into an array of parts
-      n = split(cmd, cmda)
-      i = 1
+      n_cmd_parts = split(cmd, cmda)
+      echodebug("n_cmd_parts: " n_cmd_parts)
+
+      # How far into the command path the documentation search has got; help
+      # begins once every part has matched a title.
+      subcmd_level = 1
+
+      # Subcommands of the command being documented, which are summarized at
+      # the end of its help.
+      subcmd_re = "^" cmd " [-_A-Za-z0-9]+$"
+      echodebug("  subcmd regex: " subcmd_re)
 
       col1_indent = sprintf("%" col1 "s", "")
       txt = "NAME\n"
@@ -1225,9 +1469,10 @@ _junonia_md2help () {
         echodebug("end command documentation")
       }
 
-      # Smush the aliases together to make them grouped when split on spaces
-      sub(/, +/, ",")
-      sub(/ +,/, ",")
+      # Smush the aliases together to make them grouped when split on spaces.
+      # Every alias needs smushing, not just the first one.
+      gsub(/, +/, ",")
+      gsub(/ +,/, ",")
 
       # Extract the commands, subcommands, and aliases in this header
       split("", subcmds, ":")
@@ -1244,23 +1489,20 @@ _junonia_md2help () {
     }
 
     # Find the topmost level command title to bootstrap subcommand location.
-    title && i == 1 && $0 == cmda[1] {
+    title && subcmd_level == 1 && $0 == cmda[1] {
       # The top level command; the name of the program.
       cmd_part = cmda[1]
 
       echodebug("top level command: " cmd_part)
 
-      # Bootstrap an expression to find subcommands of this command.
-      subcmd_re = "^" cmd_part " [-_A-Za-z0-9]+(,|$)"
-      echodebug("  subcmd regex: " subcmd_re)
-
       # Increment the level of subcommand we are interested in.
-      i = 2
+      subcmd_level = 2
 
       # This is the only command given; help for the program itself. So
-      # actually we are done searching for the command to do help for.
-      if(n == 1) {
-        txt = txt "  " cmd_part "\n"
+      # actually we are done searching for the command to do help for. Note
+      # that the name itself is added to the help text by the rule that finds
+      # the whole command, which runs on the line following this header.
+      if(n_cmd_parts == 1) {
         cmd_doc_start = 1
         added_txt = 1
         echodebug("start command documentation")
@@ -1269,37 +1511,28 @@ _junonia_md2help () {
       next
     }
 
+    # A title holding the whole command locates it without also needing a title
+    # for the program itself, as when only the documentation of one command is
+    # streamed.
+    title && subcmd_level == 1 && $0 == cmd {
+      cmd_part = $0
+      subcmd_level = n_cmd_parts + 1
+      echodebug("whole command located: " cmd_part)
+      next
+    }
+
     # Keep moving until the top level command is located
-    i == 1 {
+    subcmd_level == 1 {
       next
     }
 
-    # At this point i > 1
+    # At this point subcmd_level > 1
 
-    # Keep looking at titles until the whole command is located
-    i > 1 && n == hn {
-      echodebug("    " i "<" n " " title " " cmda[i] " == " subcmds[i])
-      for(j=1; j<=hn; j++) {
-        echodebug("      " j " " subcmds[j])
-      }
-    }
-
-    title && i < n && n == hn && cmda[i] == subcmds[i] {
-      for(j=1; j<i; j++) {
-        if(cmda[j] != subcmds[j]) {
-          next
-        }
-      }
-      i++
-      next
-    }
-
-    # The whole command has been found, so document it and get set up to
-    # identify and document the subcommand summary
-    #title && i == n && cmda[n] in subcmds {
-    title && i == n && n == hn && cmda[n] in aliases {
-      # Everything up to this point has to match up also
-      for(j=1; j<i; j++) {
+    # A title holding the whole command. The depth has to match exactly, or a
+    # deeper command is treated as found when only its leading parts matched.
+    title && subcmd_level <= n_cmd_parts && n_cmd_parts == hn && cmda[subcmd_level] == subcmds[subcmd_level] {
+      # Every part of the command has to match up
+      for(j=1; j<=n_cmd_parts; j++) {
         if(cmda[j] != subcmds[j]) {
           next
         }
@@ -1308,31 +1541,42 @@ _junonia_md2help () {
       # This is the header line with all Markdown stripped
       cmd_part = $0
 
+      # Every part of the command has now been located
+      subcmd_level = n_cmd_parts + 1
+      echodebug("whole command located: " cmd_part)
+      next
+    }
+
+    # The whole command has been found, so document it and get set up to
+    # identify and document the subcommand summary
+    title && subcmd_level == n_cmd_parts + 1 && n_cmd_parts == hn && cmda[n_cmd_parts] in aliases {
+      # Everything up to this point has to match up also
+      for(j=1; j<subcmd_level; j++) {
+        if(cmda[j] != subcmds[j]) {
+          next
+        }
+      }
+
       # Unsmush any aliases
       sub(/,/, ", ", cmd_part)
 
       txt = txt "  " cmd_part "\n"
       added_txt = 1
 
-      # Get the last primary subcommand (not the aliases) and build a regex to
-      # find this commands subcommands to document.
-      split($0, subcmda, ",")
-      subcmd_re = "^" subcmda[1] " [-_A-Za-z0-9]+$"
-      echodebug("  subcmd regex: " subcmd_re)
-
       cmd_doc_start = 1
       echodebug("start command documentation")
-      i++
+      subcmd_level++
       next
     }
 
     # Keep moving until the whole command is located.
-    i <= n {
+    subcmd_level <= n_cmd_parts {
       next
     }
 
-    # In the command description, so add it to the name line.
-    title && ! cmd_doc_end && ! /^$/ {
+    # First line of the description, appended to the name line. Only after the
+    # whole command is located, or text of an unrelated title lands here.
+    title && cmd_doc_start && ! cmd_doc_end && ! /^$/ {
       txt = substr(txt, 1, length(txt) - 1) " -- " $0 "\n"
       added_txt = 1
       next
@@ -1501,19 +1745,6 @@ _junonia_cmds='  help
   config
   cache
     -clear
-  plugin
-    list
-    search
-      TERM
-    info
-      NAME
-    install
-      NAME
-    uninstall
-      NAME
-    upgrade
-      NAME
-    update
   version
     -junonia'
 
@@ -1529,7 +1760,7 @@ Bourne shell scripting framework and program
 
 ### Description
 
-Junonia is a Bourne shell framework for writing scripts. It is also a standalone program that can be used to retrieve and execute other plugins and programs.
+Junonia is a Bourne shell framework for writing scripts. Run as a program in its own right it provides the meta-commands that every junonia program has.
 
 EOF
 }
@@ -1591,164 +1822,6 @@ Remove the cache directory. Note that a subsequent run of \`cache\` will result 
 EOF
 }
 
-_junonia_plugin_md () {
-cat << EOF
-## \`$JUNONIA_NAME plugin\`
-
-Manage $JUNONIA_NAME shell plugins and programs
-
-### Synopsis
-
-    $JUNONIA_NAME plugin
-
-### Description
-
-Shell plugins and programs can be stored in the user config directory. Plugins can add subcommands to programs or provide new functions that can be used by existing or new plugins.
-
-EOF
-}
-
-_junonia_plugin_list_md () {
-cat << EOF
-## \`$JUNONIA_NAME plugin list\`
-
-Show installed plugins
-
-### Synopsis
-
-    $JUNONIA_NAME plugin list
-
-EOF
-}
-
-_junonia_plugin_search_md () {
-cat << EOF
-## \`$JUNONIA_NAME plugin search\`
-
-Search the plugin registry for matches
-
-### Synopsis
-
-    $JUNONIA_NAME plugin search TERM
-
-### Description
-
-The plugin registry contains information about plugins and programs that can be retrieved for installation. The listings include authors, plugin names, tags, and short descriptions. The \`TERM\` supplied is passed to an \`awk\` script for matching, and matches are printed for any match found in the information.
-
-### Positional parameters
-
-* \`TERM\`
-
-Search term to match on author, package name, tags, and descriptions. The term can be a simple word or any regular expression that is valid in AWK.
-
-EOF
-}
-
-_junonia_plugin_info_md () {
-cat << EOF
-## \`$JUNONIA_NAME plugin info\`
-
-Display a plugin or program summary
-
-### Synopsis
-
-    $JUNONIA_NAME plugin info NAME
-
-### Description
-
-Info displays the registry information about a package.
-
-### Positional parameters
-
-* \`NAME\`
-
-Exact name of the package in author/name form.
-
-EOF
-}
-
-_junonia_plugin_install_md () {
-cat << EOF
-## \`$JUNONIA_NAME plugin install\`
-
-Retrieve and install plugins and programs
-
-### Synopsis
-
-    $JUNONIA_NAME plugin install NAME
-
-### Description
-
-Install searches for, downloads, and extracts plugins and programs to the user plugin directory in the user config directory. If the item being installed is a program, the program script will be symlinked in the user bin directory in the user config directory.
-
-### Positional parameters
-
-* \`NAME\`
-
-Plugin or program name in author/name form
-
-EOF
-}
-
-_junonia_plugin_uninstall_md () {
-cat << EOF
-## \`$JUNONIA_NAME plugin uninstall\`
-
-Remove an installed plugin or program
-
-### Synopsis
-
-    $JUNONIA_NAME plugin uninstall NAME
-
-### Description
-
-Uninstall removes the specified plugin or program by deleting the directory. If the item is a program, the symlink in the user bin directory in the user config directory is also deleted.
-
-### Positional parameters
-
-* \`NAME\`
-
-Plugin or program name in author/name form
-
-EOF
-}
-
-_junonia_plugin_upgrade_md () {
-cat << EOF
-## \`$JUNONIA_NAME plugin upgrade\`
-
-Search for and retrieve a new plugin or program version
-
-### Synopsis
-
-    $JUNONIA_NAME plugin upgrade NAME
-
-### Description
-
-Upgrade searches the registry for a version newer than the one currently installed. Installation is performed by downloading the newer version, uninstalling the existing version, then installing the downloaded version.
-
-### Positional parameters
-
-* \`NAME\`
-
-Plugin or program name in author/name form
-
-EOF
-}
-
-_junonia_plugin_update_md () {
-cat << EOF
-## \`$JUNONIA_NAME plugin update\`
-
-Update the plugin registry cache
-
-### Synopsis
-
-    $JUNONIA_NAME plugin update
-
-EOF
-}
-
 _junonia_version_md () {
 cat << EOF
 ## \`$JUNONIA_NAME version\`
@@ -1772,14 +1845,6 @@ _junonia_mds () {
 _junonia_help_md
 _junonia_config_md
 _junonia_cache_md
-_junonia_plugin_md
-_junonia_plugin_list_md
-_junonia_plugin_search_md
-_junonia_plugin_info_md
-_junonia_plugin_install_md
-_junonia_plugin_uninstall_md
-_junonia_plugin_upgrade_md
-_junonia_plugin_update_md
 _junonia_version_md
 _junonia_web_mds 2>/dev/null
 }
@@ -1802,6 +1867,15 @@ _junonia_help_metacmds () {
            p'
 }
 
+# The documentation of the commands junonia provides itself, which lives in
+# shell functions rather than in the program documentation. Nothing is emitted
+# for help on the program itself, where they are summarized under METACOMMANDS.
+_junonia_metacmd_docs () {
+  if [ "$1" != "$JUNONIA_NAME" ]; then
+    _junonia_mds
+  fi
+}
+
 _junonia_help () {
   echodebug "begin help"
 
@@ -1816,10 +1890,11 @@ _junonia_help () {
 
   case "${JUNONIA_SPEC_TYPE#cached_}" in
     dir)
-      mds="$(for f in "$JUNONIA_MD"/*.md; do cat "$f"; echo; done)"
+      mds="$(junonia_doc_list "$JUNONIA_MD" |
+               while IFS= read -r doc; do cat "$doc"; echo; done)"
       helptext="$( {
                      echo "$mds"
-                     _junonia_plugin_docs
+                     _junonia_metacmd_docs "$cmd"
                    } | _junonia_md2help "$cmd")"
       if [ "$JUNONIA_NAME" = "$cmd" ]; then
         helptext="$helptext $(_junonia_help_metacmds)"
@@ -1828,26 +1903,19 @@ _junonia_help () {
     file)
       helptext="$( {
                      cat "$JUNONIA_MD"
-                     _junonia_plugin_docs
+                     _junonia_metacmd_docs "$cmd"
                    } | _junonia_md2help "$cmd")"
       if [ "$JUNONIA_NAME" = "$cmd" ]; then
         helptext="$helptext $(_junonia_help_metacmds)"
       fi
       ;;
     md_string)
-      if [ "$JUNONIA_NAME" = junonia ]; then
-        helptext="$( {
-                      echo "$JUNONIA_MD"
-                      _junonia_plugin_docs
-                    } | _junonia_md2help "$cmd")"
-      else
-        helptext="$( {
-                      echo "$JUNONIA_MD"
-                      _junonia_plugin_docs
-                    } | _junonia_md2help "$cmd")"
-        if [ "$JUNONIA_NAME" = "$cmd" ]; then
-          helptext="$helptext $(_junonia_help_metacmds)"
-        fi
+      helptext="$( {
+                     echo "$JUNONIA_MD"
+                     _junonia_metacmd_docs "$cmd"
+                   } | _junonia_md2help "$cmd")"
+      if [ "$JUNONIA_NAME" = "$cmd" ]; then
+        helptext="$helptext $(_junonia_help_metacmds)"
       fi
       ;;
     spec_string)
@@ -1918,157 +1986,6 @@ _junonia_cache () {
   fi
 }
 
-_junonia_plugin () {
-  exec "$0" plugin help
-}
-
-_junonia_plugin_list () {
-  if [ -d "$JUNONIA_CONFIGDIR/plugins" ]; then
-    cd "$JUNONIA_CONFIGDIR/plugins"
-    for d in */; do
-      if ! echo "$d" | grep -q '\.'; then
-        echo "${d%/}"
-      else
-        for siteorg in "${d%/}"/*/; do
-          for orgplugin in "${siteorg%/}"/*/; do
-            echo "${orgplugin%/}"
-          done
-        done
-      fi
-    done
-  fi
-}
-
-_junonia_plugin_search () {
-  term="$1"
-
-  if [ -z "$term" ]; then
-    echoerr "a search term is required"
-  fi
-
-  if ! reg="$(_junonia_get_registry)"; then
-    echoerr "registry not available"
-    return 1
-  fi
-
-  awk_prog='
-    $0 ~ s      { m     = 1  }
-    NR % 3 == 1 { info  = $0 }
-    NR % 3 == 2 { descr = $0 }
-    NR % 3 == 0 {
-      if(m) {
-        print info
-        print descr
-      }
-      m = 0
-    }
-  '
-  echo "$reg" | awk -v s="$term" "$awk_prog"
-}
-
-_junonia_plugin_info () {
-  plugin_name="$1"
-
-  if ! reg="$(_junonia_get_registry)"; then
-    echoerr "registry not available"
-    return 1
-  fi
-
-  awk_prog='
-    NR % 3 == 1 {
-      info  = $0
-      n = split($1, namea, "/")
-    }
-    NR % 3 == 2 {
-      if(namea[2] == name || namea[3] == name ||
-         namea[2] "/" namea[3] == name) {
-        print info
-        print $0
-        print ""
-      }
-    }
-  '
-  echo "$reg" | awk -v name="$plugin_name" "$awk_prog"
-}
-
-_junonia_plugin_install () {
-  plugin_name="$1"
-
-  if ! command -v git >/dev/null 2>&1; then
-    echoerr "git is required for installs (currently)"
-    return 1
-  fi
-
-  if ! reg="$(_junonia_get_registry)"; then
-    echoerr "registry not available"
-    return 1
-  fi
-
-  awk_prog='
-    NR % 3 == 1 {
-      n = split($1, namea, "/")
-      if(namea[2] "/" namea[3] == name) {
-        print $1
-        exit
-      }
-    }
-  '
-
-  repo="$(echo "$reg" | awk -v name="$plugin_name" "$awk_prog")"
-  plugindir="$JUNONIA_CONFIGDIR/plugins/$repo"
-
-  mkdir -p "$plugindir"
-  cd "$plugindir"
-  git clone "https://$repo.git" .
-
-  echo "installed $plugin_name to:"
-  echo "$plugindir"
-}
-
-_junonia_plugin_uninstall () {
-  plugin_name="$1"
-  plugindir="$JUNONIA_CONFIGDIR/plugins/github.com/$name"
-
-  if ! echo "$plugin_name" | awk -F '/' 'NF == 2 { exit 0 } { exit 1 }'; then
-    echoerr "plugin name should be of the form org/repo"
-    return 1
-  fi
-
-  if echo "$plugindir" | grep -Eq '\.\.'; then
-    echoerr "plugin path cannot contain relative path entries '..'"
-    return 1
-  fi
-
-  if [ -d "$plugindir" ]; then
-    cd "$JUNONIA_CONFIGDIR/plugins/github.com"
-    rm -rf "$name"
-  fi
-}
-
-_junonia_plugin_upgrade () {
-  plugin_name="$1"
-  plugindir="$JUNONIA_CONFIGDIR/plugins/github.com/$name"
-
-  if ! echo "$plugin_name" | awk -F '/' 'NF == 2 { exit 0 } { exit 1 }'; then
-    echoerr "plugin name should be of the form org/repo"
-    return 1
-  fi
-
-  if [ -d "$plugindir" ]; then
-    cd "$(dirname "$plugindir")"
-    git pull
-  fi
-}
-
-_junonia_plugin_update () {
-  reg_file="$JUNONIA_CACHEDIR/${JUNONIA_NAME}_registry"
-  if [ -f "$reg_file" ]; then
-    rm -f "$reg_file"
-  fi
-
-  _junonia_get_registry >/dev/null
-}
-
 _junonia_version () {
   if command -v ${JUNONIA_NAME}_version >/dev/null 2>&1; then
     ver="$JUNONIA_NAME $(${JUNONIA_NAME}_version)"
@@ -2096,14 +2013,6 @@ _junonia_normalize_func () {
   # Check for meta-commands
   for f in ${JUNONIA_NAME}_config \
            ${JUNONIA_NAME}_cache \
-           ${JUNONIA_NAME}_plugin \
-           ${JUNONIA_NAME}_plugin_list \
-           ${JUNONIA_NAME}_plugin_search \
-           ${JUNONIA_NAME}_plugin_info \
-           ${JUNONIA_NAME}_plugin_install \
-           ${JUNONIA_NAME}_plugin_uninstall \
-           ${JUNONIA_NAME}_plugin_upgrade \
-           ${JUNONIA_NAME}_plugin_update \
            ${JUNONIA_NAME}_version; do
     if [ "$1" = "$f" ]; then
       echo _junonia${1#$JUNONIA_NAME}
@@ -2142,120 +2051,83 @@ junonia_cache_file () {
   fi
 }
 
-_junonia_get_registry () {
-  reg_file="$JUNONIA_CACHEDIR/${JUNONIA_NAME}_registry"
-
-  if [ -f "$reg_file"        ] &&
-     [ "$JUNONIA_CACHE" != 0 ]; then
-    cat "$reg_file"
-  else
-    if ! command -v curl >/dev/null 2>&1; then
-      echoerr "unable to get plugin registry: curl not found"
-      return 1
-    fi
-
-    if ! command -v ${JUNONIA_NAME}_registry; then
-      echoerr "unable to get plugin registry: no registry info available"
-      return 1
-    fi
-
-    reg="$(curl -s ${JUNONIA_NAME}_registry)"
-    junonia_cache_file "$reg_file" "$reg"
-  fi
-}
-
-_junonia_plugin_docs () {
-  for plugin in $(_junonia_plugin_list); do
-    pname="$(basename "$plugin")"
-    plugindir="$JUNONIA_CONFIGDIR/plugins/$plugin"
-    for docdir in "$plugindir/$name/usr/share/doc/$pname" \
-                  "$plugindir/docs" \
-                  "$plugindir/doc" \
-                  "$plugindir"; do
-      if ls "$docdir"/*.md >/dev/null 2>&1; then
-        cat "$docdir"/*.md
-      fi
-    done
-  done
-}
-
-# Try to find and source a given function name
-_junonia_load_func () {
-  if ! command -v "$1" >/dev/null 2>&1; then
-    if ! _junonia_func_search "$JUNONIA_PATH" "$1"; then
-      for plugin in $(_junonia_plugin_list); do
-        plugindir="$JUNONIA_CONFIGDIR/plugins/$plugin"
-        _junonia_func_search "$plugindir" "$1"
-      done
-    fi
-  fi
-}
-
+# Search conventional function file locations for the given function.
+# Return 0 if it was loaded, 1 if not found.
 _junonia_func_search () {
   echodebug "begin func search"
 
   searchpath="$1"
   func_name="$2"
-  i=0
 
-  while ! command -v $func_name >/dev/null 2>&1; do
-    for ext in sh py; do
-      i=0
-      while [ $i -lt 8 ]; do
-        case $i in
-          0) p="$searchpath/$func_name.$ext";;
-          1) p="$searchpath/cmd/$func_name.$ext";;
-          2) p="$searchpath/cmds/$func_name.$ext";;
-          3) p="$searchpath/lib/$JUNONIA_NAME/$func_name.$ext";;
-          4) p="$searchpath/lib/$JUNONIA_NAME/cmd/$func_name.$ext";;
-          5) p="$searchpath/lib/$JUNONIA_NAME/cmds/$func_name.$ext";;
-          6) p="$searchpath/lib/$JUNONIA_NAME/command/$func_name.$ext";;
-          7) p="$searchpath/lib/$JUNONIA_NAME/commands/$func_name.$ext";;
-        esac
+  # See if the function for the command is already present
+  if command -v "$func_name" >/dev/null 2>&1; then
+    echodebug "skipping func search since command $func_name is already defined"
+    JUNONIA_INTERP=${JUNONIA_INTERP:-sh}
+    return 0
+  fi
 
-        i=$(( $i + 1 ))
+  for ext in sh py; do
+    i=0
+    while [ $i -lt 8 ]; do
+      case $i in
+        0) p="$searchpath/$func_name.$ext";;
+        1) p="$searchpath/cmd/$func_name.$ext";;
+        2) p="$searchpath/cmds/$func_name.$ext";;
+        3) p="$searchpath/lib/$JUNONIA_NAME/$func_name.$ext";;
+        4) p="$searchpath/lib/$JUNONIA_NAME/cmd/$func_name.$ext";;
+        5) p="$searchpath/lib/$JUNONIA_NAME/cmds/$func_name.$ext";;
+        6) p="$searchpath/lib/$JUNONIA_NAME/command/$func_name.$ext";;
+        7) p="$searchpath/lib/$JUNONIA_NAME/commands/$func_name.$ext";;
+      esac
 
-        # Note that if the JUNONIA_INTERP_* variable is set manually it will be
-        # used unconditionally for the interpreter.
+      i=$(( $i + 1 ))
 
-        echodebug "searching for $p"
-        if [ ! -f "$p" ]; then
-          continue
-        fi
+      # Note that if the JUNONIA_INTERP_* variable is set manually it will be
+      # used unconditionally for the interpreter.
 
-        echodebug "found $p"
-        case "$ext" in
-          sh)
-            . "$p"
+      echodebug "searching for $p"
+      if [ ! -f "$p" ]; then
+        continue
+      fi
 
-            # Only stop the search if the sourced file actually contained the
-            # function.
-            if command -v $func_name >/dev/null 2>&1; then
-              JUNONIA_INTERP=${JUNONIA_INTERP_SH:-sh}
+      echodebug "found $p"
+      case "$ext" in
+        sh)
+          . "$p"
+
+          # Only stop the search if the sourced file actually contained the
+          # function.
+          if command -v $func_name >/dev/null 2>&1; then
+            JUNONIA_INTERP=${JUNONIA_INTERP_SH:-sh}
+            return 0
+          fi
+          ;;
+        py)
+          if [ -n "$JUNONIA_INTERP_PY" ]; then
+            JUNONIA_INTERP="$JUNONIA_INTERP_PY"
+            JUNONIA_FUNCPATH="$p"
+            return 0
+          fi
+
+          for py in python python3 pypy3 pypy; do
+            if command -v $py >/dev/null 2>&1; then
+              JUNONIA_INTERP=$py
+              JUNONIA_FUNCPATH="$p"
               return 0
             fi
-            ;;
-          py)
-            for py in python python3 pypy3 pypy; do
-              if command -v $py >/dev/null 2>&1; then
-                JUNONIA_INTERP=${JUNONIA_INTERP_PY:-$py}
-                JUNONIA_FUNCPATH="$p"
-                return 0
-              fi
-            done
-            echoerr "no suitable Python interpreter found"
-            return 1
-            ;;
-          *)
-            echoerr "unsupported extension: $ext"
-            return 1
-            ;;
-        esac
-      done
+          done
+          echoerr "no suitable Python interpreter found"
+          return 1
+          ;;
+        *)
+          echoerr "unsupported extension: $ext"
+          return 1
+          ;;
+      esac
     done
   done
 
-  echoerr "command not found: $1"
+  echodebug "function not found in $searchpath: $func_name"
   return 1
 }
 
@@ -2266,16 +2138,22 @@ _junonia_func_search () {
 
 # Configure the output level settings. Providing 0 or no argument disables
 # output from echodebug. Providing 1 or any other non-empty value enables
-# output from echodebug. This is accomplished by having echodebug output to
-# file descriptor 3, and redirecting 3 to either /dev/null (disabled) or 2
-# (stderr, enabled).
+# output from echodebug. Providing 2 additionally enables trace logging. This
+# is accomplished by having echodebug output to file descriptor 3, echotrace
+# output to file descriptor 4, and redirecting 3 and 4 to either /dev/null
+# (disabled) or 2 (stderr, enabled).
 junonia_setdebug () {
   case "$1" in
     0|'')
       exec 3>/dev/null
+      exec 4>/dev/null
       ;;
     1)
       exec 3>&2
+      ;;
+    2)
+      exec 3>&2
+      exec 4>&2
       ;;
     *)
       echoerr "invalid log level: $1"
@@ -2308,6 +2186,10 @@ junonia_init () {
   # JGS
   # JRS
   # JUS
+  # JUNONIA_GS         The four separators above, under the
+  # JUNONIA_FS         names documented for use by programs
+  # JUNONIA_RS
+  # JUNONIA_US
   # JUNONIA_WRAP       Width of two column output (option help listings)
   # JUNONIA_COL1       Width of column one
   # JUNONIA_COL2       Width of column two
@@ -2321,7 +2203,7 @@ junonia_init () {
     return
   fi
 
-  readonly JUNONIA_VERSION="1.5.0"
+  readonly JUNONIA_VERSION="1.6.0"
 
   # Communication control characters (TC1 - TC4)
   readonly JSOH="" # Start of heading    (SOH / TC1 / dec 1)
@@ -2335,6 +2217,15 @@ junonia_init () {
   readonly JGS="" # Group  Separator (GS / IS3 / dec 29)
   readonly JFS="" # File   Separator (FS / IS4 / dec 28)
 
+  # The separators under the names that are documented for use by programs
+  # built on junonia. The short names above are used internally; these are
+  # the public names, so that, for example, a program can iterate over the
+  # values of a multi-value option with IFS=$JUNONIA_US.
+  readonly JUNONIA_GS="$JGS"
+  readonly JUNONIA_FS="$JFS"
+  readonly JUNONIA_RS="$JRS"
+  readonly JUNONIA_US="$JUS"
+
   # Use TMPDIR if it is set. If not, set it to /tmp
   if [ -z "$TMPDIR" ]; then
     TMPDIR=/tmp
@@ -2342,6 +2233,11 @@ junonia_init () {
 
   # Strip the trailing / from TMPDIR if there is one
   export TMPDIR="$(echo "$TMPDIR" | sed 's#/$##')"
+
+  # The awk rules match on ASCII ranges, and the programs junonia runs glob and
+  # sort, so the collation is fixed for both. The order junonia itself depends
+  # on is not left to this, because LC_ALL overrides it: see junonia_doc_list.
+  export LC_COLLATE=C
 
   # Get the absolute path to command used to start this script. JUNONIA_TARGET
   # can be set to a path to avoid the bootstrap process if that path is known
@@ -2593,10 +2489,12 @@ _junonia_set_args () {
         func_name = func_name " " pos[j]
       }
 
-      # Check the next arg to see if that should be the func for help
-      # e.g. cmd subcommand help subcommand2
-      if(ARGV[i+1] && ARGV[i+1] !~ /^-/) {
-        func_name = func_name " " ARGV[i+1]
+      # Any arguments after help that are not options are subcommands to get
+      # help for, to any depth; e.g. cmd help subcommand subsubcommand.
+      j = i + 1
+      while(ARGV[j] && ARGV[j] !~ /^-/) {
+        func_name = func_name " " ARGV[j]
+        j++
       }
 
       print JGS "_junonia_help" JRS func_name
@@ -2642,9 +2540,22 @@ _junonia_set_args () {
           if(opts[ARGV[i]]) {
 
             # Have already seen this arg once, so it gets another, numbered
-            # entry in the opts array.
-            opts[ARGV[i] opt_num[ARGV[i]]] = ARGV[i+1]
-            echodebug(ARGV[i+1] " in opts[" ARGV[i] opt_num[ARGV[i]] "]")
+            # entry in the opts array. As below, the option and its value have
+            # to be removed from the argument list, and the loop has to jump
+            # over the value, or the value of this repeat occurrence is later
+            # mistaken for a positional parameter, which also trips the check
+            # that all positional parameters precede all options.
+            if(! ARGV[i+1] || substr(ARGV[i+1], 1, 1) == "-") {
+              opts[ARGV[i] opt_num[ARGV[i]]] = ""
+              delete ARGV[i]
+              echodebug("empty")
+            } else {
+              opts[ARGV[i] opt_num[ARGV[i]]] = ARGV[i+1]
+              echodebug(ARGV[i+1] " in opts[" ARGV[i] opt_num[ARGV[i]] "]")
+              delete ARGV[i]
+              delete ARGV[i+1]
+              i++
+            }
 
           } else {
 
@@ -2681,8 +2592,9 @@ _junonia_set_args () {
                   opts[ARGV[i]] = ARGV[i+1]
                   echodebug(ARGV[i+1])
 
-                  # The value may yet become a JSON flag.
-                  make_jqprog("# " ARGV[i+1] " = true |")
+                  # The value may yet become a JSON flag, in which case the
+                  # comment on this statement comes off and it assigns it.
+                  make_jqprog("# " jq_path(ARGV[i+1]) " = true |")
                 }
               } else {
                 # Store this arg and its value, which is the next value.
@@ -2710,6 +2622,17 @@ _junonia_set_args () {
 
             # This is a JSON argument
             delete_val = make_jqprog(ARGV[i], ARGV[i+1])
+
+            # Remembered rather than put in opts[], because a JSON option
+            # builds the request body, not the argument list. The default must
+            # not be applied on top of it later, and a boolean is validated
+            # below, where the spec says it is one.
+            if(delete_val) {
+              json_given[ARGV[i]] = ARGV[i+1]
+            } else {
+              # A flag given with no value, which was emitted as true.
+              json_given[ARGV[i]] = "true"
+            }
 
             # Always delete the argument name. Optionally delete the next item,
             # depending on if it was the next option (name was a flag) or an
@@ -2778,8 +2701,11 @@ _junonia_set_args () {
       p = 1
     }
 
-    # Skip lines starting with # and blank lines
-    /^ #/ || /^$/ {
+    # Skip comments and blank lines. Comments are kept in the spec so that the
+    # help command can print them, but they are not spec entries. Note that a
+    # comment is recognized no matter how deeply it is indented, because an
+    # indented comment is not a de-indent of the spec tree either.
+    /^ *#/ || /^$/ {
       next
     }
 
@@ -2803,10 +2729,23 @@ _junonia_set_args () {
       echodebug("")
       echodebug("processing spec option: " $0)
 
-      split($1, a, "=")
-      aliases = a[1]
-      n_aliases = split(aliases, aliasa, ",")
-      metavar_pos = n_aliases + 1
+      # The names of an option, aliases included, are one comma separated
+      # field, so the meta variable follows the last name rather than being $2.
+      # A hand written spec puts a space after the comma and awk splits it, so
+      # join the names back up while they end in a comma.
+      n_names = 1
+      while(n_names < NF && $n_names ~ /,$/) {
+        n_names++
+      }
+
+      aliases = ""
+      for(i = 1; i <= n_names; i++) {
+        aliases = aliases $i
+      }
+
+      split(aliases, a, "=")
+      n_aliases = split(a[1], aliasa, ",")
+      metavar_pos = n_names + 1
 
       opt = ""
       # Go through all aliases and see if this is an option in the command line.
@@ -2816,11 +2755,9 @@ _junonia_set_args () {
         }
       }
 
-      if(config) {
-        booldef = ""
-      } else {
-        booldef = a[2]
-      }
+      # Note that any default value for this option is taken from the spec line
+      # itself further down, not from a[2], because the default of an option
+      # that takes a value follows the meta variable rather than the name.
 
       # Get the junonia_web call arguments
       if(a[1] == "-JUNONIA_WEB_METHOD") {
@@ -2840,7 +2777,6 @@ _junonia_set_args () {
 
       if(a[1] == "-JUNONIA_OUTPUT") {
         j_output = substr($0, index($0, "=") + 1, length($0))
-        echodebug("  j_output = " j_output)
         next
       }
 
@@ -2893,7 +2829,10 @@ _junonia_set_args () {
 
             # Flag (no metavar in spec)
             if(opts[opt] == "") {
-              opts[opt] = booldef
+              # A flag given with no value is true, whatever its default is.
+              # Using the default here would make a flag defaulting to false
+              # stay false when it was explicitly given.
+              opts[opt] = 1
             } else {
               if(substr(opts[opt], 1, 1) == ".") {
                 # The string next to this option originally looked like an
@@ -2902,9 +2841,9 @@ _junonia_set_args () {
                 # already, but is commented out. Uncomment it. This keeps
                 # the order of the program statements, which can be important
                 # if also consuming the arguments in other ways.
-                sub("# " opts[opt], opts[opt], jqprog)
+                uncomment_json_stmt(opts[opt])
                 echodebug("")
-                opts[opt] = booldef
+                opts[opt] = 1
               }
             }
 
@@ -2930,47 +2869,87 @@ _junonia_set_args () {
           gsub(/[-_\.]/, "_", envopt)
           sub(/^_/, "", envopt)
 
-          if(booldef) {
-            optval = mapbool(def, opt)
-            if(is_json && optval) {
-              optval = opt "= true"
-            } else {
-              optval = opt "= false"
+          # A spec entry with no meta variable is a boolean; a false default
+          # may be written false, 0, or not at all.
+          is_bool = ($metavar_pos == "")
+          has_default = 0
+          if(is_bool) {
+            n = index($0, "=")
+            if(n) {
+              has_default = 1
+              deftxt = substr($0, n + 1)
+              # An empty default is false, where mapbool reads an empty string
+              # as a flag given with no value, which is true.
+              if(deftxt == "") {
+                optval = ""
+              } else {
+                optval = mapbool(deftxt, opt)
+              }
             }
           } else {
-            if($2 !~ /\[[A-Za-z0-9]/) {
+            if($metavar_pos !~ /\[[A-Za-z0-9]/) {
               n = index($0, "=")
               if(n) {
+                has_default = 1
                 optval = substr($0, n + 1)
               }
             }
           }
 
-          if(ENVIRON[envopt]) {
-            if($2) {
-              optval = ENVIRON[envopt]
-            } else {
+          # Environment variables override the default. Membership has to be
+          # tested explicitly: a plain reference to ENVIRON is false for the
+          # value 0, which would silently discard it. An empty value still
+          # counts as unset.
+          env_set = 0
+          if((envopt in ENVIRON) && ENVIRON[envopt] != "") {
+            env_set = 1
+            if(is_bool) {
               optval = mapbool(ENVIRON[envopt], opt)
-              if(is_json && optval) {
-                optval = opt " = true"
-              } else {
-                optval = opt " = false"
-              }
+            } else {
+              optval = ENVIRON[envopt]
             }
           }
 
           if(is_json) {
-            if(optval) {
-              make_jqprog(opt, optval)
+            # A JSON option is a field of the request body, not an argument,
+            # so it takes no argument slot and this rule is done with it.
+            if(opt in json_given) {
+              if(is_bool) {
+                # That statement was emitted while reading the arguments,
+                # before the option was known to be a boolean, so the value is
+                # unvalidated: maybe would become the JSON string "maybe".
+                boolval = mapbool(json_given[opt], opt)
+                if(boolval) {
+                  boolval = "true"
+                } else {
+                  boolval = "false"
+                }
+                set_json_stmt(opt, boolval)
+              }
             } else {
-              next
+              if(is_bool) {
+                # A documented default appears in the body whatever it is,
+                # false included, so the key exists. With no default and
+                # nothing given the key is left out, which for a PATCH is the
+                # difference between false and leave alone.
+                if(has_default || env_set) {
+                  if(optval) {
+                    make_jqprog(opt, "true")
+                  } else {
+                    make_jqprog(opt, "false")
+                  }
+                }
+              } else if(optval) {
+                make_jqprog(opt, optval)
+              }
             }
+            next
+          }
+
+          if(junonia_web && opt != "-json") {
+            args = args substr(opt, 2) "=" optval
           } else {
-            if(junonia_web && opt != "-json") {
-              args = args substr(opt, 2) "=" optval
-            } else {
-              args = args optval
-            }
+            args = args optval
           }
         }
       }
@@ -3234,6 +3213,17 @@ junonia_runmd () {
 # with the parsed arg values (which may have been changed by the filter
 # function).
 junonia_runmd_filtered () {
+  # The filter function may be empty, but the word has to be there, because
+  # everything below reads position by position and hands the same positions on
+  # to _junonia_run_final. A shift past the last argument stops some shells with
+  # a shell error, which is a poor answer to give a program that called with too
+  # few words.
+  if [ $# -lt 2 ]; then
+    echoerr "junonia_runmd_filtered takes a filter function, which may be"
+    echoerr "empty, and the Markdown to build the argument spec from"
+    return 1
+  fi
+
   echodebug "begin runmd filtered"
 
   filter_func="$1"
@@ -3257,15 +3247,22 @@ junonia_runmd_filtered () {
   spec_type=
   if [ -d "$md" ]; then
     readonly JUNONIA_DOCDIR="$md"
-    spec="${spec:-"$(_junonia_plugin_docs | _junonia_md2spec "$md"/*.md -)"}"
+    docs="$(junonia_doc_list "$md")"
+    # Split the list on newlines only, so that a document path with a space in
+    # it stays one word for awk.
+    old_IFS=$IFS
+    IFS='
+'
+    spec="${spec:-"$(_junonia_md2spec $docs)"}"
     ret=$?
+    IFS=$old_IFS
     spec_type="${cached}dir"
   elif [ -f "$md" ]; then
-    spec="${spec:-"$(_junonia_plugin_docs | _junonia_md2spec "$md" -)"}"
+    spec="${spec:-"$(_junonia_md2spec "$md")"}"
     ret=$?
     spec_type="${cached}file"
   elif [ "$(echo "$md" | wc -l)" -gt 1 ]; then
-    spec="${spec:-"$( ( echo "$md"; _junonia_plugin_docs ) | _junonia_md2spec "" -)"}"
+    spec="${spec:-"$(echo "$md" | _junonia_md2spec "" -)"}"
     ret=$?
     spec_type="${cached}md_string"
   fi
@@ -3291,6 +3288,14 @@ junonia_runspec () {
 # function with the parsed arg values (which may have been changed by the
 # filter function).
 junonia_runspec_filtered () {
+  # See the note in junonia_runmd_filtered. The function to run arrives with the
+  # spec, because _junonia_run_final takes four words of its own.
+  if [ $# -lt 3 ]; then
+    echoerr "junonia_runspec_filtered takes a filter function, which may be"
+    echoerr "empty, the argument spec, and the function to run"
+    return 1
+  fi
+
   echodebug "begin runspec filtered"
 
   filter_func="$1"
@@ -3304,16 +3309,18 @@ junonia_runspec_filtered () {
 ### Run execution
 ###
 
+# These carry argument values and the jq program, both of which hold arbitrary
+# text, and the shell builtin echo interprets backslash escapes.
 get_jqprog () {
-  echo "$1"
+  printf '%s\n' "$1"
 }
 
 get_jqargs () {
-   echo "$JW_JQPROG" | sed '/^#/d;$d' | cut -d ' ' -f 1
+   printf '%s\n' "$JW_JQPROG" | sed '/^#/d;$d' | cut -d ' ' -f 1
 }
 
 get_args () {
-  echo "$2"
+  printf '%s\n' "$2"
 }
 
 _junonia_run_final () {
@@ -3425,24 +3432,35 @@ _junonia_exec () {
   # back to normal.
   unset IFS
 
-  filter_func="$1"
-  shift
+  # Shift one at a time and only where there is something to shift, because a
+  # shift past the last argument hangs dash, ksh, and mksh.
+  filter_func="${1-}"
+  if [ $# -gt 0 ]; then shift; fi
 
-  md="$1"
-  shift
+  md="${1-}"
+  if [ $# -gt 0 ]; then shift; fi
 
-  spec_type="$1"
-  shift
+  spec_type="${1-}"
+  if [ $# -gt 0 ]; then shift; fi
 
-  spec="$1"
-  shift
+  spec="${1-}"
+  if [ $# -gt 0 ]; then shift; fi
 
-  func="$1"
-  shift
+  func="${1-}"
+  if [ $# -gt 0 ]; then shift; fi
 
   if [ "$func" = "junonia_web" ]; then
     # Need to pop these off and put them back so the filter function,
     # if any, can correctly operate on the right options.
+    #
+    # The awk that assembled these emits all five with the function name, so a
+    # short list here means the library is out of step with itself. Saying so
+    # is kinder than what the shells make of a shift past the last argument.
+    if [ $# -lt 5 ]; then
+      echoerr "no web request arguments were built for ${1-}"
+      return 1
+    fi
+
     jw_func="$1"
     shift
     jw_method="$1"
@@ -3566,9 +3584,8 @@ _junonia_exec () {
     JW_JSON=
   fi
 
-  # If the command hasn't already been sourced or defined somewhere, try to
-  # discover it by checking for files corresponding to the function name.
-  if ! _junonia_load_func "$JUNONIA_FUNC"; then
+  if ! _junonia_func_search "$JUNONIA_PATH" "$JUNONIA_FUNC"; then
+    echoerr "command not found: $JUNONIA_CMD"
     return 1
   fi
 
@@ -3579,7 +3596,7 @@ _junonia_exec () {
   else
     echodebug "JUNONIA_INTERP: $JUNONIA_INTERP"
     case "$JUNONIA_INTERP" in
-      sh)
+      sh|'')
         $JUNONIA_FUNC "$@"
         ;;
       python|python3|pypy3|pypy)
@@ -3588,9 +3605,12 @@ _junonia_exec () {
         PYTHONPATH="$JUNONIA_PATH/lib/python" "$JUNONIA_INTERP" "$JUNONIA_FUNCPATH" "$@"
         ;;
       *)
-        if command -v "$JUNONIA_INTERP"; then
+        if command -v "$JUNONIA_INTERP" >/dev/null 2>&1; then
           echodebug "attempting execution with $JUNONIA_INTERP"
-          "$JUNONIA_INTERP" "$JUNONIA_FUNCPATH" "$@"
+          # All interpreter paths like PYTHONPATH need to be added here
+          # because we don't know what kind of interpreter we're running.
+          echodebug "PYTHONPATH=\"$JUNONIA_PATH/lib/python\" \"$JUNONIA_INTERP\" \"$JUNONIA_FUNCPATH\" \"$@\""
+          PYTHONPATH="$JUNONIA_PATH/lib/python" "$JUNONIA_INTERP" "$JUNONIA_FUNCPATH" "$@"
         else
           echoerr "Unable to execute $func with $JUNONIA_INTERP"
           return 1
@@ -3612,8 +3632,7 @@ junonia_setdebug "$JUNONIA_DEBUG"
 junonia_init
 
 # If the program we are running is called 'junonia', then the base program /
-# this library is being run with just the meta-commands. Yay! Time to run and
-# probably go get some plugins!
+# this library is being run with just the meta-commands.
 if [ "$JUNONIA_NAME" = "junonia" ]; then
   junonia_run "$@"
 fi

@@ -20,6 +20,6 @@ This is option one for subcommand one.
 
 A boolean option
 
-* `-bool2=1`
+* `-bool2`
 
-A boolean with a default.
+A boolean with a default. [default: `1`]

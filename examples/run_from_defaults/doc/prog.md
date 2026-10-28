@@ -12,7 +12,7 @@ Long description of `prog`.
 
 ### Options
 
-* `-shared-arg SHARED=shared_default`
+* `-shared-arg SHARED`
 
-This option is available to all `prog` subcommands.
+This option is available to all `prog` subcommands. [default: `shared_default`]
 
