@@ -26,6 +26,10 @@ The junonia library also provides:
 
 If the program implementation follows the junonia conventions for project layout, then all that is required, typically, is to write Markdown, then implement each subcommand as a shell function that will receive argument values in the order defined in the Markdown, and finally `junonia_bootstrap; . $JUNONIA_PATH/path/to/junonia; junonia_run "$@"`
 
+## License
+
+Junonia is licensed under the Apache License, version 2.0. Previous versions have used the Unlicense and the Creative Commons 0 licenses. Public domain licenses do not address the potential presence of software using patents, however, and software licensed under either the Unlicense or the CC0 are no longer accepted into, for example, Fedora Linux. The goal is for this (and my other) software to be as unencumbered as possible, and the best choice for that based on research is the Apache License 2.0.
+
 ## Use of AI
 
 This project was started before 2019 and was 100% hand written until the first use of AI in late 2026. This use has been ethical and responsible, in that the AI was run locally on a Strix Halo computer in a home powered by solar panels, and every line changed has been read by a human for approval, removal, or modification. This project is not carelessly vibe coded, and has benefitted greatly from AI assistance.
